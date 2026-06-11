@@ -66,7 +66,7 @@
     <g id="SignalsGrid">
       <g id="signal_close">
         <text x="48" y="664" font-size="11" font-weight="500" fill="#6b7280">CLOSE</text>
-        <text x="48" y="692" font-size="20" font-weight="700" fill="#111827" font-family="JetBrains Mono, monospace">$62850</text>
+        <text x="48" y="692" font-size="20" font-weight="700" fill="#111827" font-family="JetBrains Mono, monospace">$62,850</text>
       </g>
       <g id="signal_rsi">
         <text x="316" y="664" font-size="11" font-weight="500" fill="#6b7280">RSI(14)</text>
@@ -80,7 +80,7 @@
       </g>
       <g id="signal_sma">
         <text x="852" y="664" font-size="11" font-weight="500" fill="#6b7280">SMA(200)</text>
-        <text x="852" y="692" font-size="20" font-weight="700" fill="#111827" font-family="JetBrains Mono, monospace">$78007</text>
+        <text x="852" y="692" font-size="20" font-weight="700" fill="#111827" font-family="JetBrains Mono, monospace">$78,007</text>
       </g>
       <g id="signal_dist">
         <text x="1120" y="664" font-size="11" font-weight="500" fill="#6b7280">Δ TO SMA200</text>
@@ -92,7 +92,7 @@
     <g id="Reasoning">
       <text x="48" y="750" font-size="14" font-weight="700" fill="#111827">Why this is REJECTED</text>
       <circle cx="56" cy="774" r="2" fill="#ef4444"/>
-      <text x="68" y="778" font-size="13" fill="#111827">Close $62850 is at or below SMA200 $78007 (Δ -19.43%).</text>
+      <text x="68" y="778" font-size="13" fill="#111827">Close $62,850 is at or below SMA200 $78,007 (Δ -19.43%).</text>
       <circle cx="56" cy="798" r="2" fill="#ef4444"/>
       <text x="68" y="802" font-size="13" fill="#111827">The survivor family requires a long-horizon uptrend filter; this token is in a downtrend.</text>
       <circle cx="56" cy="822" r="2" fill="#ef4444"/>
