@@ -4,8 +4,18 @@
 //   node src/index.js --token BTC
 //   node src/index.js --token ETH --json
 
-import "dotenv/config";
-import { evaluateToken } from "./evaluator.js";
+// Upstream bug workaround: @stratchai/strategy-spec/src/generator.js calls
+// `require("dotenv").config()` at module import time using its own nested
+// dotenv 17.x — and dotenv 17 prints a "tip" banner to stdout that breaks
+// downstream JSON parsing. Setting DOTENV_CONFIG_QUIET=true BEFORE the
+// strategy-spec import chain runs suppresses the banner. We have to set it
+// before any other import (static imports get hoisted), then use a dynamic
+// import for the rest of the app.
+process.env.DOTENV_CONFIG_QUIET = "true";
+
+const dotenv = (await import("dotenv")).default;
+dotenv.config({ quiet: true });
+const { evaluateToken } = await import("./evaluator.js");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -16,7 +26,13 @@ if (args.help || !args.token) {
 
 const result = await evaluateToken(args.token);
 
-if (args.json) {
+if (args.emitSpec) {
+  if (!result.spec) {
+    console.error(`No spec emitted — verdict was ${result.verdict}. Specs are only attached to PASS or oversold-confirmed WATCH verdicts.`);
+    process.exit(3);
+  }
+  console.log(JSON.stringify(result.spec, null, 2));
+} else if (args.json) {
   console.log(JSON.stringify(result, null, 2));
 } else {
   printPretty(result);
@@ -30,6 +46,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--help" || a === "-h") out.help = true;
     else if (a === "--json") out.json = true;
+    else if (a === "--emit-spec") out.emitSpec = true;
     else if (a === "--token") out.token = argv[++i];
   }
   return out;
@@ -43,10 +60,11 @@ function printHelp() {
   console.log("");
   console.log("Flags:");
   console.log("  --token <SYMBOL>   Token to evaluate (required)");
-  console.log("  --json             Emit raw JSON instead of pretty output");
+  console.log("  --json             Emit full result as JSON (verdict + signals + reasoning + spec)");
+  console.log("  --emit-spec        Print only the strategy-spec JSON (PASS / oversold-WATCH only)");
   console.log("  --help, -h         Show this help");
   console.log("");
-  console.log("Exit codes: 0=PASS/WATCH, 2=REJECT");
+  console.log("Exit codes: 0=PASS/WATCH, 2=REJECT, 3=no spec to emit");
 }
 
 function printPretty(r) {
@@ -73,6 +91,11 @@ function printPretty(r) {
   console.log("Reasoning:");
   for (const line of r.reasoning) {
     console.log(`  - ${line}`);
+  }
+  if (r.spec) {
+    console.log("");
+    console.log(`Strategy spec emitted: ${r.spec.name}`);
+    console.log(`  - Run \`node src/index.js --token ${r.symbol} --emit-spec\` to extract the JSON.`);
   }
   console.log("");
 }
