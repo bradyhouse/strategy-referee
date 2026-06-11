@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1100" viewBox="0 0 1440 1100" font-family="Inter, system-ui, sans-serif">
+
+  <g id="Background">
+    <rect x="0" y="0" width="1440" height="1100" fill="#ffffff"/>
+  </g>
+
+  <g id="Header">
+    <rect x="0" y="0" width="1440" height="64" fill="#ffffff"/>
+    <line x1="0" y1="64" x2="1440" y2="64" stroke="#e5e7eb" stroke-width="1"/>
+    <text x="24" y="28" font-size="18" font-weight="700" fill="#111827">strategy-referee</text>
+    <text x="24" y="48" font-size="12" fill="#6b7280">Anti-hype crypto strategy evaluator — built for BNB HACK</text>
+    <text x="1240" y="40" font-size="13" fill="#6b7280">About</text>
+    <text x="1308" y="40" font-size="13" fill="#6b7280">GitHub</text>
+    <text x="1380" y="40" font-size="13" fill="#6b7280">Spec ↗</text>
+  </g>
+
+  <g id="ModeBar">
+    <rect x="0" y="64" width="1440" height="64" fill="#f9fafb"/>
+    <line x1="0" y1="128" x2="1440" y2="128" stroke="#e5e7eb" stroke-width="1"/>
+    <text x="24" y="102" font-size="13" font-weight="600" fill="#111827">Mode</text>
+    <rect x="76" y="84" width="130" height="32" rx="6" fill="#111827"/>
+    <text x="141" y="105" font-size="13" font-weight="500" fill="#ffffff" text-anchor="middle">Single token</text>
+    <rect x="214" y="84" width="100" height="32" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+    <text x="264" y="105" font-size="13" font-weight="500" fill="#6b7280" text-anchor="middle">Watchlist</text>
+    <text x="370" y="102" font-size="13" font-weight="600" fill="#111827">As of</text>
+    <rect x="424" y="84" width="160" height="32" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+    <text x="438" y="105" font-size="13" fill="#111827">Today</text>
+    <text x="572" y="105" font-size="13" fill="#6b7280">▼</text>
+  </g>
+
+  <g id="InputSection">
+    <text x="24" y="170" font-size="13" font-weight="600" fill="#111827">Token</text>
+    <rect x="76" y="152" width="320" height="40" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+    <text x="92" y="178" font-size="14" fill="#111827">BTC</text>
+    <rect x="412" y="152" width="120" height="40" rx="6" fill="#111827"/>
+    <text x="472" y="178" font-size="14" font-weight="500" fill="#ffffff" text-anchor="middle">Evaluate</text>
+    <text x="24" y="232" font-size="12" fill="#6b7280">Or try a known historical PASS:</text>
+    <rect x="240" y="216" width="170" height="28" rx="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+    <text x="325" y="234" font-size="12" fill="#111827" text-anchor="middle">ETH · 2025-09-25</text>
+    <rect x="424" y="216" width="170" height="28" rx="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+    <text x="509" y="234" font-size="12" fill="#111827" text-anchor="middle">LINK · 2025-09-25</text>
+    <rect x="608" y="216" width="170" height="28" rx="14" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+    <text x="693" y="234" font-size="12" fill="#111827" text-anchor="middle">SOL · 2025-09-25</text>
+  </g>
+
+  <g id="VerdictCard">
+    <rect x="24" y="280" width="1392" height="700" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1"/>
+
+    <g id="VerdictHeader">
+      <rect x="48" y="312" width="80" height="28" rx="14" fill="#ef4444"/>
+      <text x="88" y="330" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">REJECT</text>
+      <text x="144" y="334" font-size="22" font-weight="700" fill="#111827">BTC</text>
+      <text x="196" y="334" font-size="14" fill="#6b7280">today</text>
+      <rect x="244" y="316" width="160" height="20" rx="4" fill="#fee2e2"/>
+      <text x="324" y="330" font-size="11" font-weight="600" fill="#991b1b" text-anchor="middle">BELOW_SMA200</text>
+      <line x1="48" y1="364" x2="1392" y2="364" stroke="#e5e7eb" stroke-width="1"/>
+    </g>
+
+    <g id="ChartPlaceholder">
+      <rect x="48" y="388" width="1344" height="240" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1" stroke-dasharray="4 4"/>
+      <text x="720" y="496" font-size="14" font-weight="600" fill="#991b1b" text-anchor="middle">Chart panel — @stratchai/cathode</text>
+      <text x="720" y="518" font-size="12" fill="#9ca3af" text-anchor="middle">BTC daily candles · SMA200 line plotted ABOVE the candles · downtrend confirmed visually</text>
+    </g>
+
+    <g id="SignalsGrid">
+      <g id="signal_close">
+        <text x="48" y="664" font-size="11" font-weight="500" fill="#6b7280">CLOSE</text>
+        <text x="48" y="692" font-size="20" font-weight="700" fill="#111827" font-family="JetBrains Mono, monospace">$62850</text>
+      </g>
+      <g id="signal_rsi">
+        <text x="316" y="664" font-size="11" font-weight="500" fill="#6b7280">RSI(14)</text>
+        <text x="316" y="692" font-size="20" font-weight="700" fill="#10b981" font-family="JetBrains Mono, monospace">22.09</text>
+        <text x="380" y="692" font-size="11" fill="#6b7280">oversold</text>
+      </g>
+      <g id="signal_mfi">
+        <text x="584" y="664" font-size="11" font-weight="500" fill="#6b7280">MFI(14)</text>
+        <text x="584" y="692" font-size="20" font-weight="700" fill="#10b981" font-family="JetBrains Mono, monospace">15.43</text>
+        <text x="648" y="692" font-size="11" fill="#6b7280">oversold</text>
+      </g>
+      <g id="signal_sma">
+        <text x="852" y="664" font-size="11" font-weight="500" fill="#6b7280">SMA(200)</text>
+        <text x="852" y="692" font-size="20" font-weight="700" fill="#111827" font-family="JetBrains Mono, monospace">$78007</text>
+      </g>
+      <g id="signal_dist">
+        <text x="1120" y="664" font-size="11" font-weight="500" fill="#6b7280">Δ TO SMA200</text>
+        <text x="1120" y="692" font-size="20" font-weight="700" fill="#ef4444" font-family="JetBrains Mono, monospace">-19.43%</text>
+        <text x="1216" y="692" font-size="11" fill="#ef4444">downtrend</text>
+      </g>
+    </g>
+
+    <g id="Reasoning">
+      <text x="48" y="750" font-size="14" font-weight="700" fill="#111827">Why this is REJECTED</text>
+      <circle cx="56" cy="774" r="2" fill="#ef4444"/>
+      <text x="68" y="778" font-size="13" fill="#111827">Close $62850 is at or below SMA200 $78007 (Δ -19.43%).</text>
+      <circle cx="56" cy="798" r="2" fill="#ef4444"/>
+      <text x="68" y="802" font-size="13" fill="#111827">The survivor family requires a long-horizon uptrend filter; this token is in a downtrend.</text>
+      <circle cx="56" cy="822" r="2" fill="#ef4444"/>
+      <text x="68" y="826" font-size="13" fill="#111827">Do not enter long.</text>
+    </g>
+
+    <g id="AntiHypeCallout">
+      <rect x="48" y="858" width="1344" height="96" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+      <text x="68" y="886" font-size="12" font-weight="700" fill="#92400e">⚠ ANTI-HYPE — WHY WE STILL REJECT DESPITE TWO OVERSOLD OSCILLATORS</text>
+      <text x="68" y="912" font-size="13" fill="#111827">RSI(14) = 22.09 and MFI(14) = 15.43 are both deeply oversold. A naive screener would flag this as a buy.</text>
+      <text x="68" y="932" font-size="13" fill="#111827">The walk-forward survivor family explicitly rejects 'falling knife' setups: oversold + below-SMA200 was tested</text>
+      <text x="68" y="948" font-size="13" font-weight="600" fill="#111827">and consistently lost money at 1.5% real fees. The uptrend filter is the discipline that earns the +0.71% OOS mean.</text>
+    </g>
+  </g>
+
+  <g id="Footer">
+    <line x1="0" y1="1004" x2="1440" y2="1004" stroke="#e5e7eb" stroke-width="1"/>
+    <text x="24" y="1030" font-size="12" fill="#6b7280">Methodology: 21 archetypes audited, 2 walk-forward survivors. Source: bradyhouse/sigma-swing-agent docs/cmc_evidence_table.md</text>
+    <text x="24" y="1052" font-size="12" fill="#9ca3af">REJECT verdicts emit no strategy spec and no forward-look — those are reserved for setups that match the survivor family.</text>
+  </g>
+
+</svg>
