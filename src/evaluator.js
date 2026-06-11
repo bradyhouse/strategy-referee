@@ -26,9 +26,6 @@ const ELEVATED_RISK_SMA_DISTANCE_PCT = 5;
 
 export async function evaluateToken(symbol, opts = {}) {
   const sym = symbol.toUpperCase();
-  const { asOfDateMs = null } = opts;
-
-  // CMC sanity — confirms the token is real and gives us market-cap context.
   let cmcQuote;
   try {
     const quotes = await quotesLatest(sym);
@@ -38,6 +35,19 @@ export async function evaluateToken(symbol, opts = {}) {
     }
   } catch (e) {
     return reject(sym, "CMC_LOOKUP_FAILED", e.message);
+  }
+  return evaluateTokenWithQuote(sym, cmcQuote, opts);
+}
+
+// Same flow as evaluateToken but with a pre-fetched CMC quote object. Used
+// by watchlist mode to batch the CMC call across N symbols (single quote
+// fetch, parallel Kraken fetches), avoiding the per-symbol CMC quota burn.
+export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
+  const sym = symbol.toUpperCase();
+  const { asOfDateMs = null } = opts;
+
+  if (!cmcQuote) {
+    return reject(sym, "TOKEN_NOT_FOUND_ON_CMC", `${sym} is not listed on CoinMarketCap.`);
   }
 
   // Kraken historical OHLCV — the indicator pipeline. Always fetch the full

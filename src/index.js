@@ -16,12 +16,18 @@ process.env.DOTENV_CONFIG_QUIET = "true";
 const dotenv = (await import("dotenv")).default;
 dotenv.config({ quiet: true });
 const { evaluateToken } = await import("./evaluator.js");
+const { evaluateWatchlist } = await import("./watchlist.js");
 
 const args = parseArgs(process.argv.slice(2));
 
-if (args.help || !args.token) {
+if (args.help || (!args.token && !args.watchlist)) {
   printHelp();
   process.exit(args.help ? 0 : 1);
+}
+
+if (args.token && args.watchlist) {
+  console.error("--token and --watchlist are mutually exclusive");
+  process.exit(1);
 }
 
 let asOfDateMs = null;
@@ -31,6 +37,18 @@ if (args.atDate) {
     console.error(`--at-date must be YYYY-MM-DD; got "${args.atDate}"`);
     process.exit(1);
   }
+}
+
+if (args.watchlist) {
+  const symbols = args.watchlist.split(",").map(s => s.trim()).filter(Boolean);
+  const results = await evaluateWatchlist(symbols, { asOfDateMs });
+  if (args.json) {
+    console.log(JSON.stringify(results, null, 2));
+  } else {
+    printWatchlistTable(results, asOfDateMs);
+  }
+  const anyPassOrWatch = results.some(r => r.verdict === "PASS" || r.verdict === "WATCH");
+  process.exit(anyPassOrWatch ? 0 : 2);
 }
 
 const result = await evaluateToken(args.token, { asOfDateMs });
@@ -57,6 +75,7 @@ function parseArgs(argv) {
     else if (a === "--json") out.json = true;
     else if (a === "--emit-spec") out.emitSpec = true;
     else if (a === "--token") out.token = argv[++i];
+    else if (a === "--watchlist") out.watchlist = argv[++i];
     else if (a === "--at-date") out.atDate = argv[++i];
   }
   return out;
@@ -69,13 +88,16 @@ function printHelp() {
   console.log("  node src/index.js --token <SYMBOL>");
   console.log("");
   console.log("Flags:");
-  console.log("  --token <SYMBOL>   Token to evaluate (required)");
-  console.log("  --at-date <DATE>   Evaluate as of YYYY-MM-DD (historical replay; default: today)");
-  console.log("  --json             Emit full result as JSON (verdict + signals + reasoning + spec)");
-  console.log("  --emit-spec        Print only the strategy-spec JSON (PASS / oversold-WATCH only)");
-  console.log("  --help, -h         Show this help");
+  console.log("  --token <SYMBOL>       Single-token evaluation");
+  console.log("  --watchlist <SYM,...>  Scan a comma-separated watchlist; rank PASS first");
+  console.log("  --at-date <DATE>       Evaluate as of YYYY-MM-DD (historical replay)");
+  console.log("  --json                 Emit full result(s) as JSON");
+  console.log("  --emit-spec            Print only the strategy-spec JSON (single-token only)");
+  console.log("  --help, -h             Show this help");
   console.log("");
-  console.log("Exit codes: 0=PASS/WATCH, 2=REJECT, 3=no spec to emit");
+  console.log("Exit codes:");
+  console.log("  Single-token:  0=PASS/WATCH, 2=REJECT, 3=no spec to emit");
+  console.log("  Watchlist:     0=any PASS/WATCH, 2=all REJECT");
 }
 
 function printPretty(r) {
@@ -149,6 +171,48 @@ function formatLargeNumber(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(2) + "K";
   return String(n);
+}
+
+function printWatchlistTable(results, asOfDateMs) {
+  const asOfTag = asOfDateMs != null
+    ? ` as of ${new Date(asOfDateMs).toISOString().slice(0, 10)}`
+    : "";
+  console.log("");
+  console.log(`Watchlist scan${asOfTag} — ${results.length} token(s)`);
+  console.log("-".repeat(78));
+  console.log("  VERDICT  SYM     Δ to SMA200    RSI(14)  MFI(14)   spec?   detail");
+  console.log("-".repeat(78));
+  for (const r of results) {
+    const s = r.signals || {};
+    const dist = s.sma_distance_pct != null ? (s.sma_distance_pct + "%").padStart(8) : "n/a".padStart(8);
+    const rsi  = s.rsi != null ? String(s.rsi).padStart(6) : "n/a".padStart(6);
+    const mfi  = s.mfi != null ? String(s.mfi).padStart(6) : "n/a".padStart(6);
+    const verdict = `[${r.verdict}]`.padEnd(8);
+    const sym = r.symbol.padEnd(7);
+    const spec = r.spec ? "  SPEC " : "       ";
+    const detail = r.code ?? (r.verdict === "PASS" ? "survivor-family match" : r.verdict === "WATCH" ? "borderline" : "");
+    console.log(`  ${verdict} ${sym} ${dist}    ${rsi}   ${mfi}   ${spec}   ${detail}`);
+  }
+  console.log("-".repeat(78));
+  // Summary
+  const tally = { PASS: 0, WATCH: 0, REJECT: 0 };
+  let oversoldWatch = 0;
+  for (const r of results) {
+    tally[r.verdict] = (tally[r.verdict] ?? 0) + 1;
+    if (r.verdict === "WATCH" && r.spec) oversoldWatch++;
+  }
+  const watchDetail = oversoldWatch > 0 ? ` (${oversoldWatch} oversold-confirmed with spec, ${tally.WATCH - oversoldWatch} near-trigger)` : "";
+  console.log(`  Summary: ${tally.PASS} PASS  ${tally.WATCH} WATCH${watchDetail}  ${tally.REJECT} REJECT`);
+  console.log("");
+  const passOrSpec = results.filter(r => r.verdict === "PASS" || (r.verdict === "WATCH" && r.spec));
+  if (passOrSpec.length > 0) {
+    console.log("  Next step: drill into a PASS/WATCH for details + spec/backtest:");
+    for (const r of passOrSpec.slice(0, 3)) {
+      const atFlag = r.as_of ? ` --at-date ${r.as_of}` : "";
+      console.log(`    node src/index.js --token ${r.symbol}${atFlag}`);
+    }
+    console.log("");
+  }
 }
 
 // Parse YYYY-MM-DD into end-of-day UTC milliseconds. End-of-day so that any
