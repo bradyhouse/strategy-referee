@@ -4,11 +4,29 @@ import { CathodeCandle } from "@stratchai/cathode";
 import "@stratchai/cathode/style";
 
 // ── Chart visual prefs (right-click menu + Cmd+Shift+= curvature) ──────────
-// Mirrors bradyhouse/dashboard src/components/ChartPanel.vue:188-221. Prefs
-// persist to localStorage so the user only sets them once.
+// Mirrors bradyhouse/dashboard src/components/ChartPanel.vue:188-221.
+//
+// Persistence is intentionally OFF right now — we're still iterating on
+// what the right defaults should be, and stale localStorage from a prior
+// session would mask whether the new defaults actually look good on
+// first paint. Right-click menu changes still apply for the session,
+// just won't survive a refresh.
+//
+// To re-enable later: flip PERSIST_PREFS = true. The load/save wiring is
+// kept in place so it's a one-line change.
+const PERSIST_PREFS = false;
 const LS_VISUAL_KEY = "strategyReferee.chart.visualPrefs";
 function loadVisualPrefs() {
+  if (!PERSIST_PREFS) return {};
   try { return JSON.parse(localStorage.getItem(LS_VISUAL_KEY) ?? "{}"); } catch { return {}; }
+}
+function saveVisualPrefs() {
+  if (!PERSIST_PREFS) return;
+  localStorage.setItem(LS_VISUAL_KEY, JSON.stringify({
+    theme: chartTheme.value, curvature: curvature.value,
+    scanlines: scanlines.value, glow: glow.value,
+    magnify: magnify.value, flat: flat.value,
+  }));
 }
 const _vp        = loadVisualPrefs();
 // Defaults tuned for the demo: paper theme + visible curvature + magnify
@@ -22,13 +40,6 @@ const magnify    = ref(_vp.magnify   ?? true);
 // take a moment longer to render the first chart (~200ms extra warm-up)
 // because three.js needs to compile the lens shader on first use.
 const flat       = ref(_vp.flat      ?? false);
-function saveVisualPrefs() {
-  localStorage.setItem(LS_VISUAL_KEY, JSON.stringify({
-    theme: chartTheme.value, curvature: curvature.value,
-    scanlines: scanlines.value, glow: glow.value,
-    magnify: magnify.value, flat: flat.value,
-  }));
-}
 
 const chartContextMenu = ref(null);
 function onChartContextMenu(e) {
