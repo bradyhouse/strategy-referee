@@ -40,6 +40,15 @@ function toggleGlow()       { glow.value      = !glow.value;      saveVisualPref
 function toggleMagnify()    { magnify.value   = !magnify.value;   saveVisualPrefs(); }
 function setChartTheme(t)   { chartTheme.value = t;               saveVisualPrefs(); }
 
+// Container background must follow the cathode theme — cathode renders on
+// transparent so whatever's behind the canvas shows through. Paper theme
+// expects a light bg; phosphor/amber expect dark.
+const chartContainerBg = computed(() => {
+  return chartTheme.value === "paper"
+    ? "bg-stone-50 border-stone-300"
+    : "bg-black border-gray-200";
+});
+
 // Cmd+Shift+= / Cmd+Shift+- nudges curvature. Shift required so we don't
 // shadow the browser's native Cmd+= / Cmd+- page-zoom shortcut.
 function onChartKeydown(e) {
@@ -545,7 +554,7 @@ const trendBadgeClass = computed(() => {
         <!-- Chart panel — right-click for visual prefs -->
         <div v-if="result.chart?.candles?.length" class="px-6 py-5 border-b border-gray-100">
           <div
-            class="h-80 rounded-lg overflow-hidden border border-gray-200 bg-black"
+            :class="['h-80 rounded-lg overflow-hidden border', chartContainerBg]"
             @contextmenu.prevent="onChartContextMenu"
           >
             <CathodeCandle
