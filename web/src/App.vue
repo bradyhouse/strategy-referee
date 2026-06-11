@@ -101,14 +101,11 @@ function focusMagnifyAtEntry() {
   }
 }
 
-// Watch result; after the chart renders, attempt to seed the magnify
-// lens at the entry marker. setTimeout > nextTick because cathode's
-// three.js shader takes a moment to warm up on first frame.
-watch(result, async (r) => {
-  if (!r) return;
-  await nextTick();
-  setTimeout(focusMagnifyAtEntry, 350);
-});
+// Note: the `watch(result, …)` that seeds the magnify lens at the entry
+// marker is registered AFTER `result` is declared lower in this file
+// (search "watch-result-magnify"). Vue allows watch() anywhere in
+// <script setup>, but the ref it watches must already exist at the
+// time the watch line executes — otherwise TDZ.
 
 // Cmd+Shift+= / Cmd+Shift+- nudges curvature. Shift required so we don't
 // shadow the browser's native Cmd+= / Cmd+- page-zoom shortcut.
@@ -142,6 +139,16 @@ const atDate = ref("2025-09-25");
 const loading = ref(false);
 const result = ref(null);
 const error = ref(null);
+
+// watch-result-magnify: after the chart renders, attempt to seed the
+// magnify lens at the entry marker. Registered here (post-`result`
+// declaration) to avoid TDZ. setTimeout > nextTick because cathode's
+// three.js shader takes a moment to warm up on first frame.
+watch(result, async (r) => {
+  if (!r) return;
+  await nextTick();
+  setTimeout(focusMagnifyAtEntry, 350);
+});
 
 // Watchlist state
 const watchlistInput = ref("BTC, ETH, SOL, LINK, ADA, DOGE");
