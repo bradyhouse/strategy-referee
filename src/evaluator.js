@@ -171,6 +171,30 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
       ? simulateForwardEntry({ asOfClose: lastClose, asOfTime: klines[i].closeTime, forwardKlines, archetype })
       : null;
 
+    // When a forward_look exists (PASS / oversold-WATCH at a historical
+    // as-of date), trim the chart payload to a window centered on the
+    // entry-exit pair so cathode's right-anchored viewport lands the
+    // trade markers in the middle of the visible area. Cathode shows the
+    // last N bars that fit at slotW; without trimming, recent bars
+    // dominate and the entry/exit scroll off the left edge.
+    if (forwardLook && !forwardLook.status) {
+      const PAD = 60;  // bars before entry + bars after exit; tuned so a
+                       // typical 10-day hold sits comfortably centered
+      const entryMs = Date.parse(forwardLook.entry_date + "T00:00:00Z");
+      const exitMs  = Date.parse(forwardLook.exit_date  + "T00:00:00Z");
+      let entryIdx = -1, exitIdx = -1;
+      for (let j = 0; j < chart.candles.length; j++) {
+        if (entryIdx < 0 && chart.candles[j].start >= entryMs) entryIdx = j;
+        if (exitIdx  < 0 && chart.candles[j].start >= exitMs)  { exitIdx = j; break; }
+      }
+      if (entryIdx >= 0) {
+        const startIdx = Math.max(0, entryIdx - PAD);
+        const endIdx   = Math.min(chart.candles.length, (exitIdx >= 0 ? exitIdx : entryIdx) + PAD + 1);
+        chart.candles = chart.candles.slice(startIdx, endIdx);
+        chart.sma200  = chart.sma200.slice(startIdx, endIdx);
+      }
+    }
+
     const asOfStamp = asOfDateMs != null
       ? new Date(asOfDateMs).toISOString().slice(0, 10)
       : null;
