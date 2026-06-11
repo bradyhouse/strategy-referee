@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed } from "vue";
+import { CathodeCandle } from "@stratchai/cathode";
+import "@stratchai/cathode/style";
 
 const mode = ref("single"); // "single" | "watchlist"
 
@@ -102,6 +104,37 @@ function switchMode(newMode) {
   error.value = null;
   watchlistError.value = null;
 }
+
+// Chart overlays + markers derived from result.chart + result.forward_look.
+// Wraps cathode's expected payload shape (sma200 as a PriceOverlayLine,
+// entry/exit markers from forward_look when available).
+const chartOverlays = computed(() => {
+  const sma = result.value?.chart?.sma200;
+  if (!sma || sma.length === 0) return [];
+  return [
+    {
+      kind: "line",
+      data: sma,
+      color: "#3b82f6",       // blue-500
+      lineWidth: 1.5,
+      label: "SMA(200)",
+    },
+  ];
+});
+
+const chartMarkers = computed(() => {
+  const fl = result.value?.forward_look;
+  if (!fl || fl.status === "OPEN_AT_EOF") return [];
+  const candles = result.value?.chart?.candles ?? [];
+  if (candles.length === 0) return [];
+  // Resolve entry/exit dates to nearest candle openTime
+  const entryTs = Date.parse(fl.entry_date + "T00:00:00Z");
+  const exitTs  = Date.parse(fl.exit_date + "T00:00:00Z");
+  return [
+    { timestamp: entryTs, price: fl.entry_price, kind: "entry", label: "Entry" },
+    { timestamp: exitTs,  price: fl.exit_price,  kind: "exit",  label: fl.reason },
+  ];
+});
 
 const watchlistTally = computed(() => {
   if (!watchlistResults.value) return null;
@@ -445,6 +478,38 @@ const trendBadgeClass = computed(() => {
             <div v-if="result.signals.sma_distance_pct != null" class="text-xs text-gray-500 mt-0.5">
               {{ result.signals.sma_distance_pct >= 0 ? "uptrend" : "downtrend" }}
             </div>
+          </div>
+        </div>
+
+        <!-- Chart panel -->
+        <div v-if="result.chart?.candles?.length" class="px-6 py-5 border-b border-gray-100">
+          <div class="h-80 rounded-lg overflow-hidden border border-gray-200 bg-black">
+            <CathodeCandle
+              :candles="result.chart.candles"
+              :overlays="chartOverlays"
+              :markers="chartMarkers"
+              theme="phosphor"
+              :flat="true"
+              :compact="false"
+              :curvature="12"
+              :scanlines="true"
+              :glow="true"
+              :slot-w="6"
+            />
+          </div>
+          <div class="mt-2 flex items-center gap-4 text-xs text-gray-500">
+            <span class="flex items-center gap-1.5">
+              <span class="inline-block w-3 h-0.5 bg-blue-500"></span>
+              SMA(200)
+            </span>
+            <span v-if="result.forward_look && !result.forward_look.status" class="flex items-center gap-1.5">
+              <span class="inline-block w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-emerald-500"></span>
+              Entry @ {{ result.forward_look.entry_date }}
+            </span>
+            <span v-if="result.forward_look && !result.forward_look.status" class="flex items-center gap-1.5">
+              <span class="inline-block w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-rose-500"></span>
+              Exit @ {{ result.forward_look.exit_date }} ({{ result.forward_look.reason }})
+            </span>
           </div>
         </div>
 

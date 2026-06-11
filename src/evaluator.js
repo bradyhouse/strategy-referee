@@ -113,11 +113,42 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
     last_bar_close_time: new Date(klines[i].closeTime).toISOString(),
   };
 
+  // Chart payload for the web UI. Includes a recent window of candles +
+  // SMA200 values aligned to them + the forward bars (if as-of date was
+  // historical). The web client maps this directly into @stratchai/cathode's
+  // CathodeCandle component. Keeping payload bounded (~250 + forward bars)
+  // so JSON stays under ~80KB for fast page render.
+  const CHART_TAIL_BARS = 250;
+  const chartHistorySlice = klines.slice(-CHART_TAIL_BARS);
+  const chartHistorySmaSlice = smaSeries.slice(-CHART_TAIL_BARS);
+  const chartCandles = [
+    ...chartHistorySlice.map(k => ({
+      start: k.openTime,
+      open: k.open, high: k.high, low: k.low, close: k.close,
+      volume: k.volume,
+    })),
+    ...forwardKlines.map(k => ({
+      start: k.openTime,
+      open: k.open, high: k.high, low: k.low, close: k.close,
+      volume: k.volume,
+    })),
+  ];
+  const chartSma200 = [
+    ...chartHistorySmaSlice.map(v => (v == null ? NaN : v)),
+    ...forwardKlines.map(() => NaN), // forward bars don't have a backward-looking SMA200 from THIS slice
+  ];
+  const chart = {
+    candles: chartCandles,
+    sma200:  chartSma200,
+    as_of_time: asOfDateMs != null ? klines[i].closeTime : null,
+  };
+
   // Decision tree
   if (lastClose <= lastSma) {
     return reject(sym, "BELOW_SMA200",
       `Close ${signals.close} is at or below SMA200 ${signals.sma200} (Δ ${signals.sma_distance_pct}%). The survivor family requires a long-horizon uptrend filter; do not enter long.`,
-      signals);
+      signals,
+      { chart });
   }
 
   const oversoldRsi = lastRsi < RSI_OVERSOLD;
@@ -158,6 +189,7 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
         spec,
         backtest,
         forward_look: forwardLook,
+        chart,
       };
     }
 
@@ -175,6 +207,7 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
       spec,
       backtest,
       forward_look: forwardLook,
+      chart,
     };
   }
 
@@ -188,16 +221,18 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
         `Long-horizon uptrend confirmed (close > SMA200).`,
         `No entry signal yet. Watch for further weakness; re-evaluate on next daily close.`,
       ],
+      chart,
     };
   }
 
   return reject(sym, "NO_OVERSOLD_SIGNAL",
     `RSI(14) ${signals.rsi}, MFI(14) ${signals.mfi}. Neither below the oversold thresholds (${RSI_OVERSOLD} / ${MFI_OVERSOLD}). The survivor family requires an oscillator-confirmed dip — no entry signal.`,
-    signals);
+    signals,
+    { chart });
 }
 
-function reject(symbol, code, message, signals = null) {
-  return { verdict: "REJECT", symbol, code, signals, reasoning: [message] };
+function reject(symbol, code, message, signals = null, extras = {}) {
+  return { verdict: "REJECT", symbol, code, signals, reasoning: [message], ...extras };
 }
 
 function r2(v) {
