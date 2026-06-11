@@ -92,6 +92,24 @@ function printPretty(r) {
   for (const line of r.reasoning) {
     console.log(`  - ${line}`);
   }
+  if (r.backtest) {
+    console.log("");
+    console.log(`Retrospective backtest (${r.backtest.archetype}, ${r.backtest.fee_round_trip_pct}% real fees):`);
+    if (r.backtest.n === 0) {
+      console.log(`  ${r.backtest.note || "No trades fired in lookback."}`);
+    } else {
+      const bt = r.backtest;
+      console.log(`  Entries fired       n=${bt.n}`);
+      console.log(`  Win rate            ${(bt.win_rate * 100).toFixed(1)}%`);
+      console.log(`  Mean P&L (net)      ${bt.mean_net_pnl_pct}%`);
+      console.log(`  Median P&L (net)    ${bt.median_net_pnl_pct}%`);
+      console.log(`  Cumulative (net)    ${bt.total_net_pnl_pct}%`);
+      console.log(`  Std dev             ${bt.std_pnl_pct}%`);
+      console.log(`  Max drawdown        ${bt.max_drawdown_pct}%`);
+      console.log(`  Exit reasons        ${JSON.stringify(bt.exit_reason_breakdown)}`);
+      if (bt.note) console.log(`  Caveat              ${bt.note}`);
+    }
+  }
   if (r.spec) {
     console.log("");
     console.log(`Strategy spec emitted: ${r.spec.name}`);

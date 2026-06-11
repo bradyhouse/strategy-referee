@@ -12,6 +12,7 @@ import {
 import { fetchDailyKlines } from "./ohlcv.js";
 import { quotesLatest } from "./cmc.js";
 import { buildRsiSurvivorSpec, buildMfiSurvivorSpec } from "./spec_builder.js";
+import { backtestSurvivor } from "./backtest.js";
 
 const RSI_OVERSOLD = 32;
 const MFI_OVERSOLD = 20;
@@ -103,7 +104,9 @@ export async function evaluateToken(symbol) {
     const oscValue   = oversoldRsi ? lastRsi : lastMfi;
     const threshold  = oversoldRsi ? RSI_OVERSOLD : MFI_OVERSOLD;
 
+    const archetype = oversoldRsi ? "rsi_oversold" : "mfi_oversold";
     const spec = oversoldRsi ? buildRsiSurvivorSpec(sym) : buildMfiSurvivorSpec(sym);
+    const backtest = backtestSurvivor(klines, archetype);
 
     if (smaDistancePct < ELEVATED_RISK_SMA_DISTANCE_PCT) {
       return {
@@ -116,6 +119,7 @@ export async function evaluateToken(symbol) {
           `BUT sma_distance ${signals.sma_distance_pct}% < ${ELEVATED_RISK_SMA_DISTANCE_PCT}% — close is in the elevated-risk regime bucket. Walk-forward regime conditioning (n=11, underpowered) showed this bucket lost -0.55% mean. Treat as elevated-risk WATCH rather than full-confidence PASS.`,
         ],
         spec,
+        backtest,
       };
     }
 
@@ -130,6 +134,7 @@ export async function evaluateToken(symbol) {
         `Setup matches the walk-forward survivor family. Audit context: rsi_oversold + SMA200 had 6/10 defensible OOS combos at 1.5% real fees, n=29 mean +0.71%, win 62%. NOT a prediction for this specific token — see honest disclosure in README.`,
       ],
       spec,
+      backtest,
     };
   }
 
