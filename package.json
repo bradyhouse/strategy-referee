@@ -7,7 +7,13 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test tests/"
+    "test": "node --test tests/",
+    "dev:api": "node server.js",
+    "dev:web": "cd web && vite",
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "build:web": "cd web && vite build",
+    "serve": "npm run build:web && node server.js",
+    "verify:universe": "node scripts/verify_cmc_universe.js"
   },
   "keywords": [
     "strategy",
@@ -25,9 +31,20 @@
     "@stratchai/cathode": "^0.1.6",
     "@stratchai/indicators": "^0.4.0",
     "@stratchai/strategy-spec": "^0.5.0",
-    "dotenv": "^16.4.0"
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.0",
+    "express": "^4.22.2"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.21",
+    "vue": "^3.5.38"
   }
 }
