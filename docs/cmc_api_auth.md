@@ -69,33 +69,51 @@ Base URL: `https://pro-api.coinmarketcap.com`
 
 ---
 
-## 4. Historical OHLCV — why we use Binance, not CMC
+## 4. Historical OHLCV — why we use Kraken, not CMC
 
 The survivor family this project evaluates requires daily RSI(14), MFI(14), and SMA(200) over **≥250 daily bars per token**. CMC's historical OHLCV endpoint (`/v2/cryptocurrency/ohlcv/historical`) is **not included in the free tier**. The cheapest paid tier that includes it (Startup, $79/month) is overkill for a hackathon-scope project.
 
-Instead, this project uses **Binance public klines API** for historical OHLCV:
+Instead, this project uses **Kraken public OHLC API** for historical OHLCV:
 
-| Property | Binance public klines |
+| Property | Kraken public OHLC |
 |---|---|
-| URL | `https://api.binance.com/api/v3/klines` |
+| URL | `https://api.kraken.com/0/public/OHLC?pair=<PAIR>&interval=1440` |
 | Authentication | None required |
-| Rate limit | 1,200 requests / minute (anonymous) |
-| Historical depth | Most majors back to 2017–2018; varies per symbol |
+| Rate limit | Generous public-tier limits (no quota for read-only public endpoints) |
+| Historical depth | Up to 720 daily bars per call |
 | Cost | $0 |
-| Coverage | All Binance-listed tokens, which spans most CMC top-200 |
+| Coverage | Most major USD pairs on Kraken; spans most of CMC top-100 |
+| Geo | US-accessible (Kraken is US-headquartered) |
 
-### 4.1 Architecture rationale
+### 4.1 Source-shopping notes (the alternatives that didn't fit)
+
+This pivoted twice during the bootstrap. Documenting the journey so the rationale is durable:
+
+| Candidate | Why we passed |
+|---|---|
+| **Binance.com** | Returns HTTP 451 from US IPs — geo-restricted ("Service unavailable from a restricted location"). Cannot be the data source for a US-built project. |
+| **CryptoCompare** | Free tier moved behind an API key requirement after the CoinDesk acquisition (Q1 2026). Adds a second key to manage; conflicts with the "free, no auth" goal. |
+| **Binance.US** | API-compatible swap for Binance.com but ~3× smaller token universe. Constrains the demo to top-50 tokens. |
+| **Coinbase Exchange** | 300-candle hard cap on `/products/{id}/candles`. Barely above the 250-bar SMA200 minimum — no margin for the evaluator to ever look back further. |
+| **CoinGecko** | Free OHLC endpoint (`/coins/{id}/ohlc`) does not return volume, which breaks the MFI computation that the survivor family depends on. The `/coins/{id}/market_chart` endpoint has volume but only returns close prices, not OHLC, breaking SL/TP back-of-envelope sanity checks. |
+| **Kraken** | ✅ Public, no auth, US-legal, 720-bar depth, OHLCV with volume. |
+
+### 4.2 Architecture rationale
 
 The two-source split is a **product feature**, not a workaround:
 
 - **CMC = market intelligence.** Token discovery, market-cap-weighted candidate selection, live quote sanity, metadata, macro context. CMC defines *which tokens are worth looking at*.
-- **Binance = price action.** Daily OHLCV history that feeds indicator computation. Binance defines *what the price did*.
+- **Kraken = price action.** Daily OHLCV history that feeds indicator computation. Kraken defines *what the price did*.
 
 This separation also lets the project meaningfully integrate **two CMC surfaces** (REST + optional MCP / x402 in the demo) rather than just one, which is competitive for the BNB HACK "Best CMC Data Use" special prize.
 
-### 4.2 Tokens not on Binance
+### 4.3 Tokens not on Kraken
 
-A small minority of CMC-listed tokens are not on Binance. The evaluator's REJECT path includes the case `INSUFFICIENT_BINANCE_HISTORY` — the verdict honestly reports the data gap rather than fabricating a result.
+A small minority of CMC-listed tokens are not on Kraken's USD pairs. The evaluator's REJECT path includes the code `NO_OHLCV_HISTORY` — the verdict honestly reports the data gap rather than fabricating a result.
+
+### 4.4 Pair-naming quirks
+
+Kraken uses XBT (the ISO 4217 code) instead of BTC for Bitcoin in pair names; the client (`src/ohlcv.js`) normalizes BTC → XBTUSD before the request. Other pairs use the natural `<SYM>USD` form.
 
 ---
 
@@ -130,5 +148,5 @@ If rate-limit headers indicate quota stress (`X-CMC_PRO_API_QUOTA_REMAINING_MINU
 
 - [coinmarketcap.com/api/documentation](https://coinmarketcap.com/api/documentation/) — full endpoint reference
 - [coinmarketcap.com/api/pricing/](https://coinmarketcap.com/api/pricing/) — tier comparison
-- [binance.com/en/binance-api](https://www.binance.com/en/binance-api) — Binance public klines documentation
+- [docs.kraken.com/api/docs/rest-api/get-ohlc-data](https://docs.kraken.com/api/docs/rest-api/get-ohlc-data) — Kraken public OHLC endpoint
 - Project scope: see [README.md](../README.md)

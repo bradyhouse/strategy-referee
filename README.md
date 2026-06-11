@@ -43,7 +43,7 @@ node src/index.js --token ETH --emit-spec
 ## Architecture
 
 - **Market intelligence layer:** CoinMarketCap Pro API (`/listings/latest`, `/quotes/latest`, `/info`, `/global-metrics`) — token discovery, market cap ranking, live sanity quotes, macro context.
-- **Price-action layer:** Binance public klines API — historical daily OHLCV for RSI / MFI / SMA200 computation. No auth required; no rate-limit friction at hackathon scale.
+- **Price-action layer:** Kraken public OHLC API — historical daily OHLCV for RSI / MFI / SMA200 computation. No auth required; US-accessible; 720-bar depth per request. See `docs/cmc_api_auth.md §4.1` for the source-shopping notes (Binance.com geo-blocked from US, CryptoCompare paywalled, etc.).
 - **Decision layer:** `@stratchai/indicators` computes RSI / MFI / SMA series; `@stratchai/strategy-spec` defines the emitted spec schema.
 - **Backtest layer:** `@stratchai/backtest` runs the emitted spec against the OHLCV history for confidence-scoring.
 - **Visualization layer:** `@stratchai/cathode` renders the candle chart with overlays in the demo UI.
