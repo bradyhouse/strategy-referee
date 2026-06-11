@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { CathodeCandle } from "@stratchai/cathode";
 import "@stratchai/cathode/style";
 
@@ -11,15 +11,17 @@ function loadVisualPrefs() {
   try { return JSON.parse(localStorage.getItem(LS_VISUAL_KEY) ?? "{}"); } catch { return {}; }
 }
 const _vp        = loadVisualPrefs();
-const chartTheme = ref(_vp.theme     ?? "phosphor");
-const curvature  = ref(_vp.curvature ?? 12);
+// Defaults tuned for the demo: paper theme + visible curvature + magnify
+// on. Phosphor/amber + glow stay available via the right-click menu.
+const chartTheme = ref(_vp.theme     ?? "paper");
+const curvature  = ref(_vp.curvature ?? 24);
 const scanlines  = ref(_vp.scanlines ?? true);
-const glow       = ref(_vp.glow      ?? true);
-const magnify    = ref(_vp.magnify   ?? false);
-// flat=true skips three.js (2D canvas path). Curvature only applies when
-// flat=false. Default flat so the page loads without the WebGL warm-up;
-// the right-click menu lets users opt in.
-const flat       = ref(_vp.flat      ?? true);
+const glow       = ref(_vp.glow      ?? false);
+const magnify    = ref(_vp.magnify   ?? true);
+// flat=false enables three.js + barrel-shader curvature. The page does
+// take a moment longer to render the first chart (~200ms extra warm-up)
+// because three.js needs to compile the lens shader on first use.
+const flat       = ref(_vp.flat      ?? false);
 function saveVisualPrefs() {
   localStorage.setItem(LS_VISUAL_KEY, JSON.stringify({
     theme: chartTheme.value, curvature: curvature.value,
@@ -47,6 +49,54 @@ const chartContainerBg = computed(() => {
   return chartTheme.value === "paper"
     ? "bg-stone-50 border-stone-300"
     : "bg-black border-gray-200";
+});
+
+// Ref on the chart container so we can find the canvas element and
+// dispatch a synthetic pointer event to seed the magnify lens at the
+// entry marker on first paint. Cathode's lens is cursor-driven (no
+// imperative API to position it) so the lens disappears the moment the
+// user moves their actual mouse — this gives the demo the
+// "look-at-the-trade" moment on initial render without overriding the
+// hover-to-magnify UX afterwards.
+const chartContainerRef = ref(null);
+
+function focusMagnifyAtEntry() {
+  if (!magnify.value) return;
+  const r = result.value;
+  if (!r?.chart?.candles?.length || !r.forward_look || r.forward_look.status) return;
+  const container = chartContainerRef.value;
+  if (!container) return;
+  const canvas = container.querySelector("canvas");
+  if (!canvas) return;
+
+  const candles = r.chart.candles;
+  const entryMs = Date.parse(r.forward_look.entry_date + "T00:00:00Z");
+  let entryIdx = -1;
+  for (let i = 0; i < candles.length; i++) {
+    if (candles[i].start >= entryMs) { entryIdx = i; break; }
+  }
+  if (entryIdx < 0) return;
+
+  const rect = canvas.getBoundingClientRect();
+  // Linear time mapping is cathode's default — close enough for the seed.
+  // y at chart vertical midpoint (rough but fine; lens magnifies what's
+  // under it regardless of exact y).
+  const x = rect.left + (entryIdx / Math.max(candles.length - 1, 1)) * rect.width;
+  const y = rect.top + rect.height * 0.5;
+  for (const type of ["pointermove", "mousemove"]) {
+    canvas.dispatchEvent(new MouseEvent(type, {
+      clientX: x, clientY: y, bubbles: true, cancelable: true,
+    }));
+  }
+}
+
+// Watch result; after the chart renders, attempt to seed the magnify
+// lens at the entry marker. setTimeout > nextTick because cathode's
+// three.js shader takes a moment to warm up on first frame.
+watch(result, async (r) => {
+  if (!r) return;
+  await nextTick();
+  setTimeout(focusMagnifyAtEntry, 350);
 });
 
 // Cmd+Shift+= / Cmd+Shift+- nudges curvature. Shift required so we don't
@@ -554,6 +604,7 @@ const trendBadgeClass = computed(() => {
         <!-- Chart panel — right-click for visual prefs -->
         <div v-if="result.chart?.candles?.length" class="px-6 py-5 border-b border-gray-100">
           <div
+            ref="chartContainerRef"
             :class="['h-80 rounded-lg overflow-hidden border', chartContainerBg]"
             @contextmenu.prevent="onChartContextMenu"
           >
