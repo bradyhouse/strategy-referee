@@ -1,16 +1,30 @@
 <script setup>
 import { ref, computed } from "vue";
 
+const mode = ref("single"); // "single" | "watchlist"
+
+// Single-token state
 const token = ref("ETH");
 const atDate = ref("2025-09-25");
 const loading = ref(false);
 const result = ref(null);
 const error = ref(null);
 
+// Watchlist state
+const watchlistInput = ref("BTC, ETH, SOL, LINK, ADA, DOGE");
+const watchlistLoading = ref(false);
+const watchlistResults = ref(null);
+const watchlistError = ref(null);
+
 const presets = [
   { label: "ETH · 2025-09-25", token: "ETH", atDate: "2025-09-25" },
   { label: "LINK · 2025-09-25", token: "LINK", atDate: "2025-09-25" },
   { label: "SOL · 2025-09-25", token: "SOL", atDate: "2025-09-25" },
+];
+
+const watchlistPresets = [
+  { label: "Crypto majors @ 2025-09-25 (3 PASS)", symbols: "BTC, ETH, SOL, LINK, ADA, DOGE", atDate: "2025-09-25" },
+  { label: "Top 10 today (mostly REJECT)", symbols: "BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, LINK, DOT, LTC", atDate: "" },
 ];
 
 async function evaluate() {
@@ -41,6 +55,64 @@ function loadPreset(p) {
   atDate.value = p.atDate;
   evaluate();
 }
+
+function loadWatchlistPreset(p) {
+  watchlistInput.value = p.symbols;
+  atDate.value = p.atDate;
+  scanWatchlist();
+}
+
+async function scanWatchlist() {
+  const symbols = watchlistInput.value
+    .split(",")
+    .map(s => s.trim().toUpperCase())
+    .filter(Boolean);
+  if (symbols.length === 0) return;
+  watchlistLoading.value = true;
+  watchlistError.value = null;
+  watchlistResults.value = null;
+  try {
+    const r = await fetch("/api/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbols,
+        asOfDate: atDate.value || null,
+      }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    watchlistResults.value = await r.json();
+  } catch (e) {
+    watchlistError.value = e.message;
+  } finally {
+    watchlistLoading.value = false;
+  }
+}
+
+function drillIn(row) {
+  // Switch to single-token mode, prefill from the row, and run.
+  mode.value = "single";
+  token.value = row.symbol;
+  if (row.as_of) atDate.value = row.as_of;
+  evaluate();
+}
+
+function switchMode(newMode) {
+  mode.value = newMode;
+  error.value = null;
+  watchlistError.value = null;
+}
+
+const watchlistTally = computed(() => {
+  if (!watchlistResults.value) return null;
+  const t = { PASS: 0, WATCH: 0, REJECT: 0 };
+  let oversoldWatch = 0;
+  for (const r of watchlistResults.value) {
+    t[r.verdict] = (t[r.verdict] ?? 0) + 1;
+    if (r.verdict === "WATCH" && r.spec) oversoldWatch++;
+  }
+  return { ...t, oversoldWatch };
+});
 
 function downloadSpec() {
   const spec = result.value?.spec;
@@ -125,8 +197,18 @@ const trendBadgeClass = computed(() => {
     <div class="bg-gray-50 border-b border-gray-200">
       <div class="max-w-7xl mx-auto px-6 py-4 flex items-center gap-3">
         <span class="text-sm font-semibold text-gray-900">Mode</span>
-        <button class="px-4 py-1.5 rounded-md bg-gray-900 text-white text-sm font-medium">Single token</button>
-        <button class="px-4 py-1.5 rounded-md bg-white border border-gray-300 text-gray-400 text-sm font-medium cursor-not-allowed" title="Watchlist mode coming soon">Watchlist</button>
+        <button
+          @click="switchMode('single')"
+          :class="['px-4 py-1.5 rounded-md text-sm font-medium', mode === 'single' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50']"
+        >
+          Single token
+        </button>
+        <button
+          @click="switchMode('watchlist')"
+          :class="['px-4 py-1.5 rounded-md text-sm font-medium', mode === 'watchlist' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50']"
+        >
+          Watchlist
+        </button>
         <div class="ml-8 flex items-center gap-2">
           <span class="text-sm font-semibold text-gray-900">As of</span>
           <input
@@ -139,8 +221,8 @@ const trendBadgeClass = computed(() => {
       </div>
     </div>
 
-    <!-- Input section -->
-    <div class="max-w-7xl mx-auto px-6 py-6">
+    <!-- Single-token input section -->
+    <div v-if="mode === 'single'" class="max-w-7xl mx-auto px-6 py-6">
       <div class="flex items-center gap-3 mb-4">
         <span class="text-sm font-semibold text-gray-900">Token</span>
         <input
@@ -171,15 +253,153 @@ const trendBadgeClass = computed(() => {
       </div>
     </div>
 
+    <!-- Watchlist input section -->
+    <div v-if="mode === 'watchlist'" class="max-w-7xl mx-auto px-6 py-6">
+      <div class="flex items-start gap-3 mb-4">
+        <span class="text-sm font-semibold text-gray-900 pt-2">Tokens</span>
+        <input
+          v-model="watchlistInput"
+          type="text"
+          placeholder="BTC, ETH, SOL, LINK..."
+          class="px-3 py-2 rounded-md border border-gray-300 flex-1 max-w-2xl text-sm font-mono"
+          @keyup.enter="scanWatchlist"
+        />
+        <button
+          @click="scanWatchlist"
+          :disabled="watchlistLoading"
+          class="px-5 py-2 rounded-md bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+        >
+          {{ watchlistLoading ? "Scanning..." : "Scan" }}
+        </button>
+      </div>
+      <div class="flex items-center gap-2 text-sm">
+        <span class="text-xs text-gray-500">Presets:</span>
+        <button
+          v-for="p in watchlistPresets"
+          :key="p.label"
+          @click="loadWatchlistPreset(p)"
+          class="px-3 py-1 rounded-full border border-gray-300 text-xs hover:bg-gray-50"
+        >
+          {{ p.label }}
+        </button>
+      </div>
+    </div>
+
     <!-- Error -->
-    <div v-if="error" class="max-w-7xl mx-auto px-6 pb-6">
+    <div v-if="mode === 'single' && error" class="max-w-7xl mx-auto px-6 pb-6">
       <div class="bg-rose-50 border border-rose-200 rounded-lg p-4 text-rose-800 text-sm">
         <strong>Error:</strong> {{ error }}
       </div>
     </div>
 
-    <!-- Result card -->
-    <div v-if="result" class="max-w-7xl mx-auto px-6 pb-12">
+    <!-- Watchlist error -->
+    <div v-if="mode === 'watchlist' && watchlistError" class="max-w-7xl mx-auto px-6 pb-6">
+      <div class="bg-rose-50 border border-rose-200 rounded-lg p-4 text-rose-800 text-sm">
+        <strong>Error:</strong> {{ watchlistError }}
+      </div>
+    </div>
+
+    <!-- Watchlist results -->
+    <div v-if="mode === 'watchlist' && watchlistResults" class="max-w-7xl mx-auto px-6 pb-12">
+      <div class="flex items-center gap-3 mb-4">
+        <h2 class="text-lg font-bold text-gray-900">
+          Scan{{ atDate ? ` as of ${atDate}` : "" }} — {{ watchlistResults.length }} token{{ watchlistResults.length === 1 ? "" : "s" }}
+        </h2>
+        <span v-if="watchlistTally" class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+          {{ watchlistTally.PASS }} PASS
+        </span>
+        <span v-if="watchlistTally" class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">
+          {{ watchlistTally.WATCH }} WATCH
+        </span>
+        <span v-if="watchlistTally" class="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-xs font-bold">
+          {{ watchlistTally.REJECT }} REJECT
+        </span>
+      </div>
+
+      <div class="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-600 font-bold">
+            <tr>
+              <th class="text-left px-4 py-3 w-24">Verdict</th>
+              <th class="text-left px-4 py-3 w-24">Symbol</th>
+              <th class="text-right px-4 py-3 tabular-nums">Δ TO SMA200</th>
+              <th class="text-right px-4 py-3 tabular-nums">RSI(14)</th>
+              <th class="text-right px-4 py-3 tabular-nums">MFI(14)</th>
+              <th class="text-center px-4 py-3 w-20">Spec</th>
+              <th class="text-left px-4 py-3">Detail</th>
+              <th class="text-right px-4 py-3 w-28">Action</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr v-for="r in watchlistResults" :key="r.symbol" class="hover:bg-gray-50">
+              <td class="px-4 py-3">
+                <span
+                  :class="['px-2 py-0.5 rounded-full text-xs font-bold', {
+                    'bg-emerald-500 text-white': r.verdict === 'PASS',
+                    'bg-amber-500 text-white': r.verdict === 'WATCH',
+                    'bg-rose-500 text-white': r.verdict === 'REJECT',
+                  }]"
+                >
+                  {{ r.verdict }}
+                </span>
+              </td>
+              <td class="px-4 py-3 font-mono font-bold">{{ r.symbol }}</td>
+              <td
+                class="px-4 py-3 font-mono text-right tabular-nums"
+                :class="{
+                  'text-emerald-600': r.signals?.sma_distance_pct >= 5,
+                  'text-amber-600': r.signals?.sma_distance_pct != null && r.signals.sma_distance_pct >= 0 && r.signals.sma_distance_pct < 5,
+                  'text-rose-600': r.signals?.sma_distance_pct < 0,
+                }"
+              >
+                {{ r.signals ? fmtPct(r.signals.sma_distance_pct) : "—" }}
+              </td>
+              <td
+                class="px-4 py-3 font-mono text-right tabular-nums"
+                :class="r.signals?.rsi < 32 ? 'text-emerald-600' : 'text-gray-900'"
+              >
+                {{ r.signals ? fmtNum(r.signals.rsi) : "—" }}
+              </td>
+              <td
+                class="px-4 py-3 font-mono text-right tabular-nums"
+                :class="r.signals?.mfi < 20 ? 'text-emerald-600' : 'text-gray-900'"
+              >
+                {{ r.signals ? fmtNum(r.signals.mfi) : "—" }}
+              </td>
+              <td class="px-4 py-3 text-center">
+                <span
+                  v-if="r.spec"
+                  :class="['inline-block px-2 py-0.5 rounded text-xs font-bold border', {
+                    'bg-emerald-50 text-emerald-800 border-emerald-300': r.verdict === 'PASS',
+                    'bg-amber-50 text-amber-800 border-amber-300': r.verdict === 'WATCH',
+                  }]"
+                >
+                  YES
+                </span>
+                <span v-else class="text-gray-400">—</span>
+              </td>
+              <td class="px-4 py-3 text-gray-600">
+                <span v-if="r.code" class="font-mono text-xs">{{ r.code }}</span>
+                <span v-else-if="r.verdict === 'PASS'">survivor-family match</span>
+                <span v-else-if="r.verdict === 'WATCH' && r.spec">oversold-confirmed, elevated risk</span>
+                <span v-else-if="r.verdict === 'WATCH'">near-trigger</span>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  @click="drillIn(r)"
+                  class="text-xs text-gray-700 underline hover:text-gray-900"
+                >
+                  Drill in →
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Single-token result card -->
+    <div v-if="mode === 'single' && result" class="max-w-7xl mx-auto px-6 pb-12">
       <div :class="['rounded-xl border bg-white shadow-sm overflow-hidden', cardBorder]">
         <!-- Verdict header -->
         <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-4">
