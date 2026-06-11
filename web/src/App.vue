@@ -63,13 +63,21 @@ const chartContainerBg = computed(() => {
 });
 
 // Ref on the chart container so we can find the canvas element and
-// dispatch a synthetic pointer event to seed the magnify lens at the
-// entry marker on first paint. Cathode's lens is cursor-driven (no
-// imperative API to position it) so the lens disappears the moment the
-// user moves their actual mouse — this gives the demo the
-// "look-at-the-trade" moment on initial render without overriding the
-// hover-to-magnify UX afterwards.
+// dispatch a synthetic mouse event to seed the magnify lens at the
+// entry marker on first paint. Cathode wires its hover/magnify
+// handler as `onMousemove` directly on the canvas element (verified
+// in cathode dist) — there's no imperative API. The seeded lens
+// persists until the user moves their real mouse onto the canvas,
+// at which point the natural hover-to-magnify UX takes over.
 const chartContainerRef = ref(null);
+
+// Cathode chart layout constants (lifted from cathode dist;
+// confirmed at `Ve = 8, Ze = 56`). Left padding before the first
+// candle; right margin reserved for the price-axis label column.
+// Candle x in canvas-local coords = Ve + (idx - firstIdx + 0.5) * slotW.
+const CC_LEFT_PAD = 8;
+const CC_RIGHT_AXIS_W = 56;
+const CC_SLOT_W = 6;     // must match the :slot-w prop on <CathodeCandle>
 
 function focusMagnifyAtEntry() {
   if (!magnify.value) return;
@@ -79,6 +87,8 @@ function focusMagnifyAtEntry() {
   if (!container) return;
   const canvas = container.querySelector("canvas");
   if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 50 || rect.height < 50) return;  // not laid out yet
 
   const candles = r.chart.candles;
   const entryMs = Date.parse(r.forward_look.entry_date + "T00:00:00Z");
@@ -88,13 +98,21 @@ function focusMagnifyAtEntry() {
   }
   if (entryIdx < 0) return;
 
-  const rect = canvas.getBoundingClientRect();
-  // Linear time mapping is cathode's default — close enough for the seed.
-  // y at chart vertical midpoint (rough but fine; lens magnifies what's
-  // under it regardless of exact y).
-  const x = rect.left + (entryIdx / Math.max(candles.length - 1, 1)) * rect.width;
-  const y = rect.top + rect.height * 0.5;
-  for (const type of ["pointermove", "mousemove"]) {
+  // Match cathode's `dl()` layout math so the seed lands on the entry
+  // candle, not 150px to the right of it (the previous linear-time
+  // interpolation was wrong for cathode's fixed-slotW layout).
+  const plotW = Math.max(1, rect.width - CC_LEFT_PAD - CC_RIGHT_AXIS_W);
+  const maxFit = Math.max(1, Math.floor(plotW / CC_SLOT_W));
+  const count = Math.min(maxFit, candles.length);
+  const firstIdx = Math.max(0, candles.length - count);
+  const xLocal = CC_LEFT_PAD + (entryIdx - firstIdx + 0.5) * CC_SLOT_W;
+  const x = rect.left + xLocal;
+  const y = rect.top + rect.height * 0.45;
+
+  // mouseenter+mouseover prime the canvas so any prior leave-cleared
+  // state resets; mousemove triggers cathode's `ce` handler which
+  // sets both the magnify-lens position and the crosshair/inspector.
+  for (const type of ["mouseenter", "mouseover", "mousemove"]) {
     canvas.dispatchEvent(new MouseEvent(type, {
       clientX: x, clientY: y, bubbles: true, cancelable: true,
     }));
@@ -143,11 +161,15 @@ const error = ref(null);
 // watch-result-magnify: after the chart renders, attempt to seed the
 // magnify lens at the entry marker. Registered here (post-`result`
 // declaration) to avoid TDZ. setTimeout > nextTick because cathode's
-// three.js shader takes a moment to warm up on first frame.
+// three.js shader takes a moment to warm up on first frame. Three
+// retries cover the worst case (first-load shader compile) without
+// being noticeably "twitchy" if the lens already sits where we want.
 watch(result, async (r) => {
   if (!r) return;
   await nextTick();
-  setTimeout(focusMagnifyAtEntry, 350);
+  setTimeout(focusMagnifyAtEntry, 250);
+  setTimeout(focusMagnifyAtEntry, 700);
+  setTimeout(focusMagnifyAtEntry, 1400);
 });
 
 // Watchlist state
