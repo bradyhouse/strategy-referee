@@ -12,7 +12,7 @@ import {
 import { fetchDailyKlines } from "./ohlcv.js";
 import { quotesLatest } from "./cmc.js";
 import { buildRsiSurvivorSpec, buildMfiSurvivorSpec } from "./spec_builder.js";
-import { backtestSurvivor } from "./backtest.js";
+import { backtestSurvivor, simulateForwardEntry } from "./backtest.js";
 
 const RSI_OVERSOLD = 32;
 const MFI_OVERSOLD = 20;
@@ -24,8 +24,9 @@ const MIN_BARS     = 250;
 // elevated-risk PASS rather than full confidence.
 const ELEVATED_RISK_SMA_DISTANCE_PCT = 5;
 
-export async function evaluateToken(symbol) {
+export async function evaluateToken(symbol, opts = {}) {
   const sym = symbol.toUpperCase();
+  const { asOfDateMs = null } = opts;
 
   // CMC sanity — confirms the token is real and gives us market-cap context.
   let cmcQuote;
@@ -39,10 +40,14 @@ export async function evaluateToken(symbol) {
     return reject(sym, "CMC_LOOKUP_FAILED", e.message);
   }
 
-  // Binance historical OHLCV — the indicator pipeline.
-  let klines;
+  // Kraken historical OHLCV — the indicator pipeline. Always fetch the full
+  // window; if asOfDateMs is provided, slice client-side into "as-of" (used
+  // for verdict + spec + backtest) and "forward" (used for the post-entry
+  // simulation when PASS) sets. No look-ahead leaks: as-of bars are the only
+  // input to the decision tree.
+  let fullKlines;
   try {
-    klines = await fetchDailyKlines(sym, 300);
+    fullKlines = await fetchDailyKlines(sym, 720);
   } catch (e) {
     if (e.code === "NO_OHLCV_HISTORY") {
       return reject(sym, "NO_OHLCV_HISTORY",
@@ -51,9 +56,20 @@ export async function evaluateToken(symbol) {
     return reject(sym, "OHLCV_FETCH_FAILED", e.message);
   }
 
+  let klines = fullKlines;
+  let forwardKlines = [];
+  if (asOfDateMs != null) {
+    klines = fullKlines.filter(k => k.closeTime <= asOfDateMs);
+    forwardKlines = fullKlines.filter(k => k.openTime > asOfDateMs);
+    if (klines.length === 0) {
+      return reject(sym, "AS_OF_DATE_BEFORE_HISTORY",
+        `--at-date is before this token's OHLCV history begins (oldest available bar opens ${new Date(fullKlines[0].openTime).toISOString().slice(0,10)}).`);
+    }
+  }
+
   if (klines.length < MIN_BARS) {
     return reject(sym, "INSUFFICIENT_HISTORY",
-      `Need ≥${MIN_BARS} daily bars to compute SMA(200) reliably; got ${klines.length}. Token is likely too new.`);
+      `Need ≥${MIN_BARS} daily bars to compute SMA(200) reliably; got ${klines.length}. Token is likely too new (or the as-of date is too early).`);
   }
 
   // Indicator pipeline
@@ -107,11 +123,22 @@ export async function evaluateToken(symbol) {
     const archetype = oversoldRsi ? "rsi_oversold" : "mfi_oversold";
     const spec = oversoldRsi ? buildRsiSurvivorSpec(sym) : buildMfiSurvivorSpec(sym);
     const backtest = backtestSurvivor(klines, archetype);
+    // Forward-look only fires when we're evaluating a past as-of date AND have
+    // future bars to walk through. Real-time evaluation has no forward bars,
+    // so this stays null in normal usage.
+    const forwardLook = forwardKlines.length > 0
+      ? simulateForwardEntry({ asOfClose: lastClose, asOfTime: klines[i].closeTime, forwardKlines, archetype })
+      : null;
+
+    const asOfStamp = asOfDateMs != null
+      ? new Date(asOfDateMs).toISOString().slice(0, 10)
+      : null;
 
     if (smaDistancePct < ELEVATED_RISK_SMA_DISTANCE_PCT) {
       return {
         verdict: "WATCH",
         symbol:  sym,
+        as_of:   asOfStamp,
         signals,
         reasoning: [
           `${oscillator}(14) = ${r2(oscValue)} confirms oversold (< ${threshold}).`,
@@ -120,12 +147,14 @@ export async function evaluateToken(symbol) {
         ],
         spec,
         backtest,
+        forward_look: forwardLook,
       };
     }
 
     return {
       verdict: "PASS",
       symbol:  sym,
+      as_of:   asOfStamp,
       signals,
       reasoning: [
         `${oscillator}(14) = ${r2(oscValue)} confirms oversold (< ${threshold}).`,
@@ -135,6 +164,7 @@ export async function evaluateToken(symbol) {
       ],
       spec,
       backtest,
+      forward_look: forwardLook,
     };
   }
 

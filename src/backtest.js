@@ -181,3 +181,52 @@ function round4(v) {
   if (v == null || !Number.isFinite(v)) return null;
   return Math.round(v * 10000) / 10000;
 }
+
+// Forward-look simulation: given a PASS-triggered entry at as-of close, walk
+// the forward klines applying the same exit envelope as the backtester.
+// Used by --at-date mode to show "would this trade have worked?" — the
+// killer demo moment when paired with a known historical PASS.
+//
+// Returns { exit_date, hold_days, gross_pnl_pct, net_pnl_pct, reason } when
+// an exit fires within the available forward bars; { status: "OPEN_AT_EOF"
+// } when forward bars run out before any exit triggers (rare unless the
+// as-of date is very recent).
+export function simulateForwardEntry({ asOfClose, asOfTime, forwardKlines, archetype }) {
+  const params = ARCHETYPES[archetype];
+  if (!params) throw new Error(`Unknown archetype: ${archetype}`);
+  if (!forwardKlines.length) return null;
+
+  for (let i = 0; i < forwardKlines.length; i++) {
+    const bar = forwardKlines[i];
+    const pnlPct = (bar.close - asOfClose) / asOfClose * 100;
+    const holdDays = i + 1; // forwardKlines[0] is day 1 after as-of
+    let reason = null;
+    if (pnlPct <= params.sl_pct) reason = "SL";
+    else if (pnlPct >= params.tp_pct) reason = "TP";
+    else if (pnlPct >= params.profit_floor_pct) reason = "PROFIT_FLOOR";
+    else if (holdDays >= params.max_hold_days) reason = "TIME_EXIT";
+
+    if (reason) {
+      const netPnlPct = pnlPct - FEE_ROUND_TRIP_PCT;
+      return {
+        entry_date: new Date(asOfTime).toISOString().slice(0, 10),
+        entry_price: round4(asOfClose),
+        exit_date: new Date(bar.openTime).toISOString().slice(0, 10),
+        exit_price: round4(bar.close),
+        hold_days: holdDays,
+        gross_pnl_pct: round4(pnlPct),
+        net_pnl_pct: round4(netPnlPct),
+        reason,
+        fee_round_trip_pct: FEE_ROUND_TRIP_PCT,
+      };
+    }
+  }
+
+  return {
+    entry_date: new Date(asOfTime).toISOString().slice(0, 10),
+    entry_price: round4(asOfClose),
+    status: "OPEN_AT_EOF",
+    forward_bars_walked: forwardKlines.length,
+    note: "No exit triggered within available forward bars — as-of date is too recent for a complete forward simulation.",
+  };
+}

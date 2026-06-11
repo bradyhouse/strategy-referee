@@ -24,7 +24,16 @@ if (args.help || !args.token) {
   process.exit(args.help ? 0 : 1);
 }
 
-const result = await evaluateToken(args.token);
+let asOfDateMs = null;
+if (args.atDate) {
+  asOfDateMs = parseAsOfDate(args.atDate);
+  if (asOfDateMs == null) {
+    console.error(`--at-date must be YYYY-MM-DD; got "${args.atDate}"`);
+    process.exit(1);
+  }
+}
+
+const result = await evaluateToken(args.token, { asOfDateMs });
 
 if (args.emitSpec) {
   if (!result.spec) {
@@ -48,6 +57,7 @@ function parseArgs(argv) {
     else if (a === "--json") out.json = true;
     else if (a === "--emit-spec") out.emitSpec = true;
     else if (a === "--token") out.token = argv[++i];
+    else if (a === "--at-date") out.atDate = argv[++i];
   }
   return out;
 }
@@ -60,6 +70,7 @@ function printHelp() {
   console.log("");
   console.log("Flags:");
   console.log("  --token <SYMBOL>   Token to evaluate (required)");
+  console.log("  --at-date <DATE>   Evaluate as of YYYY-MM-DD (historical replay; default: today)");
   console.log("  --json             Emit full result as JSON (verdict + signals + reasoning + spec)");
   console.log("  --emit-spec        Print only the strategy-spec JSON (PASS / oversold-WATCH only)");
   console.log("  --help, -h         Show this help");
@@ -69,8 +80,9 @@ function printHelp() {
 
 function printPretty(r) {
   const label = { PASS: "[PASS]", WATCH: "[WATCH]", REJECT: "[REJECT]" }[r.verdict] || `[${r.verdict}]`;
+  const asOfTag = r.as_of ? `  as of ${r.as_of}` : "";
   console.log("");
-  console.log(`${label}  ${r.symbol}${r.code ? "  (" + r.code + ")" : ""}`);
+  console.log(`${label}  ${r.symbol}${asOfTag}${r.code ? "  (" + r.code + ")" : ""}`);
   console.log("-".repeat(60));
   if (r.signals) {
     console.log(`  Close              ${r.signals.close}`);
@@ -110,10 +122,24 @@ function printPretty(r) {
       if (bt.note) console.log(`  Caveat              ${bt.note}`);
     }
   }
+  if (r.forward_look) {
+    console.log("");
+    console.log(`Forward-look (what would have happened if you entered at as-of close):`);
+    const fl = r.forward_look;
+    if (fl.status === "OPEN_AT_EOF") {
+      console.log(`  ${fl.note}`);
+    } else {
+      console.log(`  Entered             ${fl.entry_date}  @ ${fl.entry_price}`);
+      console.log(`  Exited              ${fl.exit_date}  @ ${fl.exit_price}  (${fl.reason})`);
+      console.log(`  Hold                ${fl.hold_days} days`);
+      console.log(`  Gross P&L           ${fl.gross_pnl_pct}%`);
+      console.log(`  Net P&L (${fl.fee_round_trip_pct}% fees)  ${fl.net_pnl_pct}%`);
+    }
+  }
   if (r.spec) {
     console.log("");
     console.log(`Strategy spec emitted: ${r.spec.name}`);
-    console.log(`  - Run \`node src/index.js --token ${r.symbol} --emit-spec\` to extract the JSON.`);
+    console.log(`  - Run \`node src/index.js --token ${r.symbol}${r.as_of ? " --at-date " + r.as_of : ""} --emit-spec\` to extract the JSON.`);
   }
   console.log("");
 }
@@ -123,4 +149,14 @@ function formatLargeNumber(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(2) + "K";
   return String(n);
+}
+
+// Parse YYYY-MM-DD into end-of-day UTC milliseconds. End-of-day so that any
+// bar that closed on the given date is included (UTC midnight is the start
+// of the next day). Returns null on parse failure.
+function parseAsOfDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59, 999);
+  return Number.isFinite(ms) ? ms : null;
 }
