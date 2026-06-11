@@ -1,0 +1,33 @@
+{
+  "name": "strategy-referee",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Anti-hype crypto strategy evaluator. Emits a backtestable strategy spec when a token matches a narrow walk-forward-validated setup family; rejects with plain-language explanation otherwise.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test tests/"
+  },
+  "keywords": [
+    "strategy",
+    "crypto",
+    "coinmarketcap",
+    "stratchai",
+    "trading",
+    "backtest",
+    "walk-forward"
+  ],
+  "author": "Brady House <bradyhouse@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@stratchai/backtest": "^0.0.3",
+    "@stratchai/cathode": "^0.1.6",
+    "@stratchai/indicators": "^0.4.0",
+    "@stratchai/strategy-spec": "^0.5.0",
+    "dotenv": "^16.4.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
