@@ -11,12 +11,17 @@ Built on the [`@stratchai/*`](https://www.npmjs.com/org/stratchai) library suite
 ```bash
 git clone https://github.com/bradyhouse/strategy-referee.git
 cd strategy-referee
-npm install --legacy-peer-deps
+npm install
 cp .env.example .env
 # add your free-tier CMC API key to .env (sign up at https://coinmarketcap.com/api/pricing/)
 
 node src/index.js --token BTC
+
+# Or run the web UI
+npm run serve     # build + serve at http://localhost:5174
 ```
+
+> A repo-local `.npmrc` sets `legacy-peer-deps=true` so plain `npm install` works on a clean checkout. This is a workaround for a stale peer-range in `@stratchai/strategy-spec@0.5.0` — see the file's comment for the full context.
 
 See [`docs/cmc_api_auth.md`](docs/cmc_api_auth.md) for full credential setup and the rationale behind the two-source data architecture (CMC for market intelligence + Kraken for historical OHLCV).
 
