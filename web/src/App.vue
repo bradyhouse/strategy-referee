@@ -1,7 +1,68 @@
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { CathodeCandle } from "@stratchai/cathode";
 import "@stratchai/cathode/style";
+
+// ── Chart visual prefs (right-click menu + Cmd+Shift+= curvature) ──────────
+// Mirrors bradyhouse/dashboard src/components/ChartPanel.vue:188-221. Prefs
+// persist to localStorage so the user only sets them once.
+const LS_VISUAL_KEY = "strategyReferee.chart.visualPrefs";
+function loadVisualPrefs() {
+  try { return JSON.parse(localStorage.getItem(LS_VISUAL_KEY) ?? "{}"); } catch { return {}; }
+}
+const _vp        = loadVisualPrefs();
+const chartTheme = ref(_vp.theme     ?? "phosphor");
+const curvature  = ref(_vp.curvature ?? 12);
+const scanlines  = ref(_vp.scanlines ?? true);
+const glow       = ref(_vp.glow      ?? true);
+const magnify    = ref(_vp.magnify   ?? false);
+// flat=true skips three.js (2D canvas path). Curvature only applies when
+// flat=false. Default flat so the page loads without the WebGL warm-up;
+// the right-click menu lets users opt in.
+const flat       = ref(_vp.flat      ?? true);
+function saveVisualPrefs() {
+  localStorage.setItem(LS_VISUAL_KEY, JSON.stringify({
+    theme: chartTheme.value, curvature: curvature.value,
+    scanlines: scanlines.value, glow: glow.value,
+    magnify: magnify.value, flat: flat.value,
+  }));
+}
+
+const chartContextMenu = ref(null);
+function onChartContextMenu(e) {
+  e.preventDefault();
+  chartContextMenu.value = { x: e.clientX, y: e.clientY };
+}
+function closeChartContextMenu() { chartContextMenu.value = null; }
+function toggleWebGL()      { flat.value      = !flat.value;      saveVisualPrefs(); }
+function toggleScanlines()  { scanlines.value = !scanlines.value; saveVisualPrefs(); }
+function toggleGlow()       { glow.value      = !glow.value;      saveVisualPrefs(); }
+function toggleMagnify()    { magnify.value   = !magnify.value;   saveVisualPrefs(); }
+function setChartTheme(t)   { chartTheme.value = t;               saveVisualPrefs(); }
+
+// Cmd+Shift+= / Cmd+Shift+- nudges curvature. Shift required so we don't
+// shadow the browser's native Cmd+= / Cmd+- page-zoom shortcut.
+function onChartKeydown(e) {
+  if (!e.metaKey || !e.shiftKey) return;
+  if (e.key === "=" || e.key === "+") {
+    e.preventDefault();
+    curvature.value = Math.min(40, curvature.value + 2);
+    saveVisualPrefs();
+  } else if (e.key === "-" || e.key === "_") {
+    e.preventDefault();
+    curvature.value = Math.max(0, curvature.value - 2);
+    saveVisualPrefs();
+  }
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", onChartKeydown);
+  document.addEventListener("click", closeChartContextMenu);
+});
+onUnmounted(() => {
+  window.removeEventListener("keydown", onChartKeydown);
+  document.removeEventListener("click", closeChartContextMenu);
+});
 
 const mode = ref("single"); // "single" | "watchlist"
 
@@ -481,19 +542,24 @@ const trendBadgeClass = computed(() => {
           </div>
         </div>
 
-        <!-- Chart panel -->
+        <!-- Chart panel — right-click for visual prefs -->
         <div v-if="result.chart?.candles?.length" class="px-6 py-5 border-b border-gray-100">
-          <div class="h-80 rounded-lg overflow-hidden border border-gray-200 bg-black">
+          <div
+            class="h-80 rounded-lg overflow-hidden border border-gray-200 bg-black"
+            @contextmenu.prevent="onChartContextMenu"
+          >
             <CathodeCandle
+              :key="`cc-${flat}`"
               :candles="result.chart.candles"
               :overlays="chartOverlays"
               :markers="chartMarkers"
-              theme="phosphor"
-              :flat="true"
+              :theme="chartTheme"
+              :flat="flat"
               :compact="false"
-              :curvature="12"
-              :scanlines="true"
-              :glow="true"
+              :curvature="curvature"
+              :scanlines="scanlines"
+              :glow="glow"
+              :magnify="magnify"
               :slot-w="6"
             />
           </div>
@@ -602,5 +668,60 @@ const trendBadgeClass = computed(() => {
       Methodology: 21 archetypes audited, 2 walk-forward survivors.
       <a href="https://github.com/bradyhouse/sigma-swing-agent/blob/main/docs/cmc_evidence_table.md" class="text-gray-700 underline hover:text-gray-900">Source</a>.
     </footer>
+
+    <!-- Chart right-click context menu (Display prefs). Teleported to body
+         so the absolute position is in viewport coords, not clipped by any
+         parent overflow. Mirrors bradyhouse/dashboard ChartPanel.vue. -->
+    <Teleport to="body">
+      <div
+        v-if="chartContextMenu"
+        class="fixed z-[100] min-w-[200px] rounded-md border border-gray-700 bg-gray-900 text-gray-100 shadow-xl text-xs"
+        :style="{ left: chartContextMenu.x + 'px', top: chartContextMenu.y + 'px' }"
+        @click.stop
+      >
+        <div class="px-3 py-2 border-b border-gray-700 flex items-center justify-between">
+          <span class="font-bold tracking-wide uppercase">Display</span>
+          <span class="text-gray-400 font-normal">curve: {{ curvature }}</span>
+        </div>
+
+        <label class="flex items-center gap-2 px-3 py-2 hover:bg-gray-800 cursor-pointer">
+          <input type="checkbox" :checked="!flat" @change="toggleWebGL" />
+          <span>WebGL pipeline</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-2 hover:bg-gray-800 cursor-pointer">
+          <input type="checkbox" :checked="scanlines" @change="toggleScanlines" />
+          <span>Scan lines</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-2 hover:bg-gray-800 cursor-pointer">
+          <input type="checkbox" :checked="glow" @change="toggleGlow" />
+          <span>Glow</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-2 hover:bg-gray-800 cursor-pointer">
+          <input type="checkbox" :checked="magnify" @change="toggleMagnify" />
+          <span>Magnify (hover lens)</span>
+        </label>
+
+        <div class="h-px bg-gray-700 my-1"></div>
+
+        <div class="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Theme</div>
+        <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 cursor-pointer">
+          <input type="radio" name="cathode-theme" :checked="chartTheme === 'phosphor'" @change="setChartTheme('phosphor')" />
+          <span>Phosphor (green)</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 cursor-pointer">
+          <input type="radio" name="cathode-theme" :checked="chartTheme === 'amber'" @change="setChartTheme('amber')" />
+          <span>Amber</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 cursor-pointer">
+          <input type="radio" name="cathode-theme" :checked="chartTheme === 'paper'" @change="setChartTheme('paper')" />
+          <span>Paper</span>
+        </label>
+
+        <div class="h-px bg-gray-700 my-1"></div>
+
+        <div class="px-3 py-1.5 text-[10px] text-gray-400">⌘+Shift+= / ⌘+Shift+− nudges curve</div>
+        <div v-if="flat" class="px-3 py-1.5 text-[10px] text-amber-400">Curve requires WebGL pipeline.</div>
+      </div>
+    </Teleport>
   </div>
 </template>
