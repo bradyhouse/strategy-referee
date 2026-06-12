@@ -31,7 +31,7 @@ function saveVisualPrefs() {
 const _vp        = loadVisualPrefs();
 // Defaults tuned for the demo: paper theme + visible curvature + magnify
 // on. Phosphor/amber + glow stay available via the right-click menu.
-const chartTheme = ref(_vp.theme     ?? "paper");
+const chartTheme = ref(_vp.theme     ?? "phosphor");
 const curvature  = ref(_vp.curvature ?? 24);
 const scanlines  = ref(_vp.scanlines ?? true);
 const glow       = ref(_vp.glow      ?? false);
