@@ -381,6 +381,95 @@ function libraryHref(name) {
   return "#";
 }
 
+// Chart trade-window geometry — computes the container-local pixel x for the
+// entry and exit triangles so we can overlay HTML on top of the cathode
+// canvas. Cathode's lens follows the cursor for OHLC inspection, but the
+// trade markers themselves have no always-visible price labels and no
+// hold-period highlight band. Adding these as a separate overlay layer
+// avoids modifying the cathode package itself.
+//
+// Math mirrors cathode's `dl()` layout (verified earlier today against the
+// dist): Ve=8 left pad, Ze=56 right axis margin, slotW=6, candles draw
+// right-anchored from the rightmost column backward.
+const CC_LEFT_PAD_PX    = 8;
+const CC_RIGHT_AXIS_PX  = 56;
+const CC_SLOT_W_PX      = 6;
+
+const chartContainerSize = ref({ w: 0, h: 0 });
+let _chartResizeObserver = null;
+
+function resizeChartContainer() {
+  const el = chartContainerRef.value;
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  chartContainerSize.value = { w: r.width, h: r.height };
+}
+
+// Wire up after onMounted + every result change so the geometry refreshes.
+watch(result, async () => {
+  await nextTick();
+  // Cathode mounts its canvas asynchronously; size after a tick + a frame.
+  setTimeout(resizeChartContainer, 50);
+  setTimeout(resizeChartContainer, 400);
+});
+
+onMounted(() => {
+  // Initial size on mount + ResizeObserver for responsive layout changes.
+  setTimeout(() => {
+    resizeChartContainer();
+    if (chartContainerRef.value && typeof ResizeObserver === "function") {
+      _chartResizeObserver = new ResizeObserver(resizeChartContainer);
+      _chartResizeObserver.observe(chartContainerRef.value);
+    }
+  }, 100);
+});
+onUnmounted(() => {
+  if (_chartResizeObserver) _chartResizeObserver.disconnect();
+});
+
+// Returns null when no trade markers are available (no forward_look, REJECT
+// verdict, etc). Otherwise returns the container-local pixel positions of
+// the entry and exit triangles plus the plot-area bounds for the band.
+const tradeWindowGeometry = computed(() => {
+  const r = result.value;
+  if (!r?.chart?.candles?.length) return null;
+  if (!r.forward_look || r.forward_look.status) return null;
+  const w = chartContainerSize.value.w;
+  const h = chartContainerSize.value.h;
+  if (w < 100 || h < 50) return null;
+
+  const candles = r.chart.candles;
+  const entryMs = Date.parse(r.forward_look.entry_date + "T00:00:00Z");
+  const exitMs  = Date.parse(r.forward_look.exit_date  + "T00:00:00Z");
+  let entryIdx = -1, exitIdx = -1;
+  for (let i = 0; i < candles.length; i++) {
+    if (entryIdx < 0 && candles[i].start >= entryMs) entryIdx = i;
+    if (exitIdx  < 0 && candles[i].start >= exitMs)  { exitIdx = i; break; }
+  }
+  if (entryIdx < 0 || exitIdx < 0) return null;
+
+  const plotW = Math.max(1, w - CC_LEFT_PAD_PX - CC_RIGHT_AXIS_PX);
+  const maxFit = Math.max(1, Math.floor(plotW / CC_SLOT_W_PX));
+  const count = Math.min(maxFit, candles.length);
+  const firstIdx = Math.max(0, candles.length - count);
+  if (entryIdx < firstIdx || exitIdx < firstIdx) return null;  // scrolled off
+
+  const entryX = CC_LEFT_PAD_PX + (entryIdx - firstIdx + 0.5) * CC_SLOT_W_PX;
+  const exitX  = CC_LEFT_PAD_PX + (exitIdx  - firstIdx + 0.5) * CC_SLOT_W_PX;
+
+  // Band spans entry candle's LEFT edge to exit candle's RIGHT edge so the
+  // shading visually contains both markers without clipping their bases.
+  const bandLeft  = entryX - CC_SLOT_W_PX / 2;
+  const bandRight = exitX  + CC_SLOT_W_PX / 2;
+
+  return {
+    entryX, exitX,
+    bandLeft, bandWidth: Math.max(2, bandRight - bandLeft),
+    plotLeft: CC_LEFT_PAD_PX, plotRight: w - CC_RIGHT_AXIS_PX,
+    containerW: w, containerH: h,
+  };
+});
+
 // Strategy explainer — surfaces the rules of the survivor strategy that
 // matched the verdict, in plain language with the actual numeric params
 // pulled from the emitted spec. Users asked "what IS the strategy in play"
@@ -428,6 +517,7 @@ const strategyExplainer = computed(() => {
       { label: "Max hold",     expr: `${maxHoldDays} days — exit even if neither price target hits` },
     ],
     direction: "Long only",
+    maxHoldDays,
   };
 });
 
@@ -784,6 +874,29 @@ const trendBadgeClass = computed(() => {
           <p class="text-sm text-gray-700 mb-3">
             <strong>{{ strategyExplainer.intuition }}</strong>
           </p>
+
+          <!-- Phase timeline — visual ENTRY → HOLD → EXIT flow so the user
+               sees the strategy as a sequence, not two disconnected cards. -->
+          <div class="mb-4 flex items-stretch gap-2">
+            <div class="flex-1 rounded-md bg-emerald-500 text-white px-3 py-2 shadow-sm">
+              <div class="text-[10px] uppercase font-bold tracking-wider opacity-80">Phase 1</div>
+              <div class="text-sm font-bold">Entry</div>
+              <div class="text-[11px] opacity-90 mt-0.5">Fires only when all 4 entry conditions are simultaneously true at a daily close.</div>
+            </div>
+            <div class="flex items-center text-emerald-700/60 text-lg font-bold">→</div>
+            <div class="flex-1 rounded-md bg-amber-100 border-2 border-amber-300 px-3 py-2 shadow-sm">
+              <div class="text-[10px] uppercase font-bold tracking-wider text-amber-800">Phase 2</div>
+              <div class="text-sm font-bold text-amber-900">Hold (up to {{ strategyExplainer.maxHoldDays }} days)</div>
+              <div class="text-[11px] text-amber-900/80 mt-0.5">On every new daily bar, check the 4 exit triggers in order. First match wins.</div>
+            </div>
+            <div class="flex items-center text-rose-700/60 text-lg font-bold">→</div>
+            <div class="flex-1 rounded-md bg-rose-500 text-white px-3 py-2 shadow-sm">
+              <div class="text-[10px] uppercase font-bold tracking-wider opacity-80">Phase 3</div>
+              <div class="text-sm font-bold">Exit</div>
+              <div class="text-[11px] opacity-90 mt-0.5">Position closed at the bar's close price (or the SL trigger). Strategy resets to scanning.</div>
+            </div>
+          </div>
+
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="rounded-lg border border-emerald-200 bg-white p-3">
               <h4 class="text-xs font-bold text-emerald-800 uppercase tracking-wide mb-2">Entry — all required</h4>
@@ -841,7 +954,7 @@ const trendBadgeClass = computed(() => {
           </div>
           <div
             ref="chartContainerRef"
-            :class="['h-80 rounded-lg overflow-hidden border', chartContainerBg]"
+            :class="['relative h-80 rounded-lg overflow-hidden border', chartContainerBg]"
             @contextmenu.prevent="onChartContextMenu"
           >
             <CathodeCandle
@@ -858,6 +971,41 @@ const trendBadgeClass = computed(() => {
               :magnify="magnify"
               :slot-w="6"
             />
+
+            <!-- Hold-period highlight band: a semi-transparent vertical strip
+                 between the entry and exit candles so the trade-active region
+                 of the chart is visually obvious without studying the markers. -->
+            <div
+              v-if="tradeWindowGeometry"
+              class="pointer-events-none absolute top-0 bottom-0 bg-amber-400/15 border-l border-r border-amber-500/40"
+              :style="{ left: tradeWindowGeometry.bandLeft + 'px', width: tradeWindowGeometry.bandWidth + 'px' }"
+            ></div>
+
+            <!-- Always-visible entry price label, anchored to the top of the
+                 chart with a thin dotted line dropping to the entry candle.
+                 Replaces the hover-only label cathode renders by default. -->
+            <div
+              v-if="tradeWindowGeometry && result.forward_look"
+              class="pointer-events-none absolute top-2 z-10 -translate-x-1/2"
+              :style="{ left: tradeWindowGeometry.entryX + 'px' }"
+            >
+              <div class="bg-emerald-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
+                ▲ ENTRY {{ fmtUsd(result.forward_look.entry_price) }}
+              </div>
+              <div class="absolute left-1/2 top-full -translate-x-1/2 w-px h-72 border-l border-dashed border-emerald-500/60"></div>
+            </div>
+
+            <!-- Always-visible exit price label, same shape, rose color. -->
+            <div
+              v-if="tradeWindowGeometry && result.forward_look"
+              class="pointer-events-none absolute top-2 z-10 -translate-x-1/2"
+              :style="{ left: tradeWindowGeometry.exitX + 'px' }"
+            >
+              <div class="bg-rose-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
+                ▼ EXIT {{ fmtUsd(result.forward_look.exit_price) }}
+              </div>
+              <div class="absolute left-1/2 top-full -translate-x-1/2 w-px h-72 border-l border-dashed border-rose-500/60"></div>
+            </div>
           </div>
           <p class="mt-2 text-xs text-gray-500 italic">
             Candles + SMA(200) overlay from <a href="https://www.npmjs.com/package/@stratchai/cathode" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/cathode</a>. Hover to see OHLC. The lens follows your cursor.
