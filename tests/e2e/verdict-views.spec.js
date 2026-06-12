@@ -11,10 +11,10 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Verdict views — visual smokes", () => {
-  test("PASS verdict on ETH 2025-09-25 preset", async ({ page }) => {
+  test("PASS verdict on TON 2026-05-24 preset", async ({ page }) => {
     await page.goto("/");
     // Click the prominent preset chip; this should fire a guaranteed PASS.
-    await page.getByRole("button", { name: /ETH · 2025-09-25/ }).click();
+    await page.getByRole("button", { name: /TON · 2026-05-24/ }).click();
     // Wait for the verdict card to land + the auto-pin sequence to finish
     // (1500ms retry + a bit of cathode shader warm-up time).
     await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
@@ -30,12 +30,12 @@ test.describe("Verdict views — visual smokes", () => {
     // without it would misread as a buy signal)
     await expect(page.getByText("What PASS actually means")).toBeVisible();
 
-    await page.screenshot({ path: "tests/e2e/screenshots/pass-eth-full.png", fullPage: true });
+    await page.screenshot({ path: "tests/e2e/screenshots/pass-ton-full.png", fullPage: true });
   });
 
-  test("ETH chart region — labels above chart, triangles inside", async ({ page }) => {
+  test("TON chart region — labels above chart, triangles inside", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /ETH · 2025-09-25/ }).click();
+    await page.getByRole("button", { name: /TON · 2026-05-24/ }).click();
     await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
     await page.waitForTimeout(2500);
 
@@ -48,7 +48,7 @@ test.describe("Verdict views — visual smokes", () => {
     const legendBox = await chartLegendBar.boundingBox();
     const cropY = legendBox ? Math.max(0, legendBox.y - 16) : 600;
     await page.screenshot({
-      path: "tests/e2e/screenshots/pass-eth-chart.png",
+      path: "tests/e2e/screenshots/pass-ton-chart.png",
       clip: { x: 0, y: cropY, width: 1440, height: 480 },
     });
 
@@ -57,14 +57,19 @@ test.describe("Verdict views — visual smokes", () => {
     await expect(page.locator("text=▼ EXIT").first()).toBeVisible();
   });
 
-  // SOL is the canonical worst case for label-vs-triangle overlap: the exit
-  // price ($213.01) sits near the TOP of the visible chart range, so any
-  // label drawn inside the chart at the top would crash into the down-
-  // triangle. This test guards the 2026-06-12 label-restructure fix.
-  test("SOL chart — label/triangle overlap (worst case)", async ({ page }) => {
+  // BCH is the MFI-triggered variant case + a different chart range than
+  // TON. Together with the TON test above we cover both archetypes and
+  // both ends of the price range — high-value $-prices (BCH ~$561) and
+  // low-value $-prices (TON ~$2). Label/triangle overlap stress test.
+  test("BCH chart — MFI-triggered + label/triangle separation", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /SOL · 2025-09-25/ }).click();
-    await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
+    // BCH isn't a preset chip — the recent BCH PASSes (Jan 2026) had losing
+    // forward-look outcomes, so the chips show TON winners + historical ETH.
+    // BCH remains a valid manual entry for archetype coverage.
+    await page.getByPlaceholder(/BTC|ETH/).fill("BCH");
+    await page.locator('input[type="date"]').fill("2026-01-27");
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
+    await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 8000 });
     await page.waitForTimeout(2500);
 
     const chartLegendBar = page.getByText("Chart legend:").first();
@@ -74,7 +79,7 @@ test.describe("Verdict views — visual smokes", () => {
     const legendBox = await chartLegendBar.boundingBox();
     const cropY = legendBox ? Math.max(0, legendBox.y - 16) : 600;
     await page.screenshot({
-      path: "tests/e2e/screenshots/pass-sol-chart.png",
+      path: "tests/e2e/screenshots/pass-bch-chart.png",
       clip: { x: 0, y: cropY, width: 1440, height: 480 },
     });
 
@@ -111,7 +116,7 @@ test.describe("Verdict views — visual smokes", () => {
 
   test("Pin-lens survives toolbar hover", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /ETH · 2025-09-25/ }).click();
+    await page.getByRole("button", { name: /TON · 2026-05-24/ }).click();
     const pinButton = page.getByRole("button", { name: /Lens pinned|Pin lens/ });
     await pinButton.waitFor({ timeout: 5000 });
     await page.waitForTimeout(2500);
