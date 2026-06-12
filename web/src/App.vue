@@ -46,6 +46,54 @@ function onChartContextMenu(e) {
   e.preventDefault();
   chartContextMenu.value = { x: e.clientX, y: e.clientY };
 }
+
+// Opens the same display-prefs menu from a visible click target (not right-
+// click) so users discover the customization options without having to know
+// the right-click affordance exists.
+function openDisplayMenuFromButton(e) {
+  e.stopPropagation();
+  const r = e.currentTarget.getBoundingClientRect();
+  chartContextMenu.value = { x: r.left, y: r.bottom + 4 };
+}
+
+// Lens-freeze: cathode's magnify lens follows the cursor (the only mode it
+// supports). To "pin" it at a specific position, we capture the last hover
+// coordinates over the canvas, then add a capture-phase listener that
+// stops cathode's mousemove handler from running — the lens stays where it
+// last was. Unfreezing removes the listener.
+const lensFrozen = ref(false);
+const lastHoverPos = ref(null);
+
+function trackLastHover(e) {
+  if (lensFrozen.value) return;
+  lastHoverPos.value = { x: e.clientX, y: e.clientY };
+}
+function blockMousemove(e) { e.stopPropagation(); }
+
+function togglePinLens() {
+  if (!chartContainerRef.value) return;
+  const canvas = chartContainerRef.value.querySelector("canvas");
+  if (!canvas) return;
+  if (lensFrozen.value) {
+    canvas.removeEventListener("mousemove", blockMousemove, true);
+    lensFrozen.value = false;
+    return;
+  }
+  // Need a position to pin to. Default to chart center if user hasn't
+  // hovered yet (e.g. they click Pin before moving cursor onto the chart).
+  let pos = lastHoverPos.value;
+  if (!pos) {
+    const r = chartContainerRef.value.getBoundingClientRect();
+    pos = { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+  }
+  // First fire a synthetic mousemove at the pin position to make sure
+  // cathode's lens is sitting where the user expects, THEN block.
+  canvas.dispatchEvent(new MouseEvent("mousemove", {
+    clientX: pos.x, clientY: pos.y, bubbles: true, cancelable: true,
+  }));
+  canvas.addEventListener("mousemove", blockMousemove, true);
+  lensFrozen.value = true;
+}
 function closeChartContextMenu() { chartContextMenu.value = null; }
 function toggleWebGL()      { flat.value      = !flat.value;      saveVisualPrefs(); }
 function toggleScanlines()  { scanlines.value = !scanlines.value; saveVisualPrefs(); }
@@ -462,11 +510,21 @@ const tradeWindowGeometry = computed(() => {
   const bandLeft  = entryX - CC_SLOT_W_PX / 2;
   const bandRight = exitX  + CC_SLOT_W_PX / 2;
 
+  // Labels collide when the entry/exit triangles are too close together
+  // (typical 6-day trade leaves them ~36px apart vs ~130px label widths).
+  // When collision detected, stagger the exit label below the entry label
+  // so both prices remain readable. Drop-line lengths adjust too.
+  const LABEL_W = 130;
+  const collides = Math.abs(exitX - entryX) < LABEL_W;
+  const entryLabelTop = 8;     // top-2
+  const exitLabelTop  = collides ? 36 : 8;   // ~28px gap below entry label when staggered
+
   return {
     entryX, exitX,
     bandLeft, bandWidth: Math.max(2, bandRight - bandLeft),
     plotLeft: CC_LEFT_PAD_PX, plotRight: w - CC_RIGHT_AXIS_PX,
     containerW: w, containerH: h,
+    entryLabelTop, exitLabelTop, collides,
   };
 });
 
@@ -956,6 +1014,7 @@ const trendBadgeClass = computed(() => {
             ref="chartContainerRef"
             :class="['relative h-80 rounded-lg overflow-hidden border', chartContainerBg]"
             @contextmenu.prevent="onChartContextMenu"
+            @mousemove="trackLastHover"
           >
             <CathodeCandle
               :key="`cc-${flat}`"
@@ -972,6 +1031,32 @@ const trendBadgeClass = computed(() => {
               :slot-w="6"
             />
 
+            <!-- Chart toolbar overlay: visible button equivalents for the
+                 right-click context menu (which most users don't discover)
+                 plus the lens-pin toggle. Sits top-right, z above all the
+                 chart overlays. pointer-events:auto so clicks register. -->
+            <div class="absolute top-2 right-2 z-20 flex items-center gap-1 pointer-events-auto">
+              <button
+                @click="togglePinLens"
+                :class="[
+                  'px-2 py-1 rounded-md text-[11px] font-medium border shadow-sm transition',
+                  lensFrozen
+                    ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                    : 'bg-white/90 backdrop-blur text-gray-700 border-gray-300 hover:bg-white',
+                ]"
+                :title="lensFrozen ? 'Click to release the magnifier' : 'Click to pin the magnifier at the current cursor position'"
+              >
+                {{ lensFrozen ? "🔒 Lens pinned" : "📍 Pin lens" }}
+              </button>
+              <button
+                @click="openDisplayMenuFromButton"
+                class="px-2 py-1 rounded-md text-[11px] font-medium bg-white/90 backdrop-blur text-gray-700 border border-gray-300 shadow-sm hover:bg-white transition"
+                title="Theme, curvature, WebGL, scanlines, glow, magnify (also: right-click anywhere on the chart)"
+              >
+                ⚙ Display
+              </button>
+            </div>
+
             <!-- Hold-period highlight band: a semi-transparent vertical strip
                  between the entry and exit candles so the trade-active region
                  of the chart is visually obvious without studying the markers. -->
@@ -983,28 +1068,32 @@ const trendBadgeClass = computed(() => {
 
             <!-- Always-visible entry price label, anchored to the top of the
                  chart with a thin dotted line dropping to the entry candle.
-                 Replaces the hover-only label cathode renders by default. -->
+                 Vertical position staggers when the exit triangle is too
+                 close (typical 6-day trade) so the two labels don't overlap. -->
             <div
               v-if="tradeWindowGeometry && result.forward_look"
-              class="pointer-events-none absolute top-2 z-10 -translate-x-1/2"
-              :style="{ left: tradeWindowGeometry.entryX + 'px' }"
+              class="pointer-events-none absolute z-10 -translate-x-1/2"
+              :style="{ left: tradeWindowGeometry.entryX + 'px', top: tradeWindowGeometry.entryLabelTop + 'px' }"
             >
               <div class="bg-emerald-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
                 ▲ ENTRY {{ fmtUsd(result.forward_look.entry_price) }}
               </div>
-              <div class="absolute left-1/2 top-full -translate-x-1/2 w-px h-72 border-l border-dashed border-emerald-500/60"></div>
+              <div class="absolute left-1/2 top-full -translate-x-1/2 w-px border-l border-dashed border-emerald-500/60"
+                   :style="{ height: (300 - tradeWindowGeometry.entryLabelTop) + 'px' }"></div>
             </div>
 
-            <!-- Always-visible exit price label, same shape, rose color. -->
+            <!-- Always-visible exit price label, same shape, rose color,
+                 lower y-position when colliding with entry. -->
             <div
               v-if="tradeWindowGeometry && result.forward_look"
-              class="pointer-events-none absolute top-2 z-10 -translate-x-1/2"
-              :style="{ left: tradeWindowGeometry.exitX + 'px' }"
+              class="pointer-events-none absolute z-10 -translate-x-1/2"
+              :style="{ left: tradeWindowGeometry.exitX + 'px', top: tradeWindowGeometry.exitLabelTop + 'px' }"
             >
               <div class="bg-rose-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
                 ▼ EXIT {{ fmtUsd(result.forward_look.exit_price) }}
               </div>
-              <div class="absolute left-1/2 top-full -translate-x-1/2 w-px h-72 border-l border-dashed border-rose-500/60"></div>
+              <div class="absolute left-1/2 top-full -translate-x-1/2 w-px border-l border-dashed border-rose-500/60"
+                   :style="{ height: (300 - tradeWindowGeometry.exitLabelTop) + 'px' }"></div>
             </div>
           </div>
           <p class="mt-2 text-xs text-gray-500 italic">
