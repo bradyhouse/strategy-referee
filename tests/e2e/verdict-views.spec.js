@@ -138,6 +138,34 @@ test.describe("Verdict views — visual smokes", () => {
     expect(passCount).toBeGreaterThanOrEqual(3);   // PASS badge appears in the table + at least one in the tally
   });
 
+  test("P key pin/unpins the lens — no cursor migration to the toolbar", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
+    const pinButton = page.getByRole("button", { name: /Lens pinned|Pin lens/ });
+    await pinButton.waitFor({ timeout: 5000 });
+    await page.waitForTimeout(2500);
+
+    // Auto-pin landed → click button to UNPIN
+    await pinButton.click();
+    await page.waitForTimeout(200);
+    await expect(pinButton).toContainText("Pin lens");
+
+    // Press P with cursor over a specific candle in the middle of the chart
+    const canvas = page.locator("canvas.cathode-candle-canvas").first();
+    await canvas.hover({ position: { x: 400, y: 150 } });
+    await page.waitForTimeout(100);
+    await page.keyboard.press("p");
+    await page.waitForTimeout(200);
+
+    // Lens should be pinned again — without moving cursor anywhere near the button
+    await expect(pinButton).toContainText("Lens pinned");
+
+    // Press P again to unpin
+    await page.keyboard.press("p");
+    await page.waitForTimeout(200);
+    await expect(pinButton).toContainText("Pin lens");
+  });
+
   test("Pin-lens survives wheel + mousedown (chart geometry doesn't shift)", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();

@@ -66,6 +66,14 @@ const lastHoverPos = ref(null);
 
 function trackLastHover(e) {
   if (lensFrozen.value) return;
+  // Only track mousemoves over the canvas itself, NOT over the toolbar
+  // buttons or the band/drop-line overlays. Without this filter,
+  // lastHoverPos would update to the button position as the user moves
+  // their cursor up to click 'Pin lens' — pinning the lens at the
+  // top-right corner instead of where the user was inspecting. The
+  // canvas pass-through (pointer-events:none on overlays) means
+  // e.target is canvas iff the cursor is actually over a candle.
+  if (e.target?.tagName !== "CANVAS") return;
   lastHoverPos.value = { x: e.clientX, y: e.clientY };
 }
 // Block real user mouse events but allow synthetic ones through. The
@@ -243,18 +251,35 @@ function focusMagnifyAtEntry() {
 // <script setup>, but the ref it watches must already exist at the
 // time the watch line executes — otherwise TDZ.
 
-// Cmd+Shift+= / Cmd+Shift+- nudges curvature. Shift required so we don't
-// shadow the browser's native Cmd+= / Cmd+- page-zoom shortcut.
+// Keyboard shortcuts:
+//   Cmd+Shift+= / Cmd+Shift+-   curvature nudge (Shift so we don't shadow
+//                               the browser's native Cmd+= / Cmd+- page zoom)
+//   P                            pin/unpin lens at cursor — the ergonomic
+//                               fix for "I want to inspect THIS candle but
+//                               clicking the Pin button drags my cursor
+//                               (and lastHoverPos) to the corner."
 function onChartKeydown(e) {
-  if (!e.metaKey || !e.shiftKey) return;
-  if (e.key === "=" || e.key === "+") {
+  // Don't intercept while the user is typing in an input
+  if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
+
+  if (e.metaKey && e.shiftKey) {
+    if (e.key === "=" || e.key === "+") {
+      e.preventDefault();
+      curvature.value = Math.min(40, curvature.value + 2);
+      saveVisualPrefs();
+      return;
+    }
+    if (e.key === "-" || e.key === "_") {
+      e.preventDefault();
+      curvature.value = Math.max(0, curvature.value - 2);
+      saveVisualPrefs();
+      return;
+    }
+  }
+
+  if (e.key === "p" || e.key === "P") {
     e.preventDefault();
-    curvature.value = Math.min(40, curvature.value + 2);
-    saveVisualPrefs();
-  } else if (e.key === "-" || e.key === "_") {
-    e.preventDefault();
-    curvature.value = Math.max(0, curvature.value - 2);
-    saveVisualPrefs();
+    togglePinLens();
   }
 }
 
@@ -1195,9 +1220,9 @@ const trendBadgeClass = computed(() => {
                       ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
                       : 'bg-white/90 backdrop-blur text-gray-700 border-gray-300 hover:bg-white',
                   ]"
-                  :title="lensFrozen ? 'Click to release the magnifier' : 'Click to pin the magnifier at the current cursor position'"
+                  :title="lensFrozen ? 'Click to release (or press P)' : 'Click to pin at last cursor position — or press P while hovering the candle you want, for precise placement'"
                 >
-                  {{ lensFrozen ? "🔒 Lens pinned" : "📍 Pin lens" }}
+                  {{ lensFrozen ? "🔒 Lens pinned" : "📍 Pin lens (P)" }}
                 </button>
                 <button
                   @click="openDisplayMenuFromButton"
