@@ -138,6 +138,44 @@ test.describe("Verdict views — visual smokes", () => {
     expect(passCount).toBeGreaterThanOrEqual(3);   // PASS badge appears in the table + at least one in the tally
   });
 
+  test("Pin-lens survives wheel + mousedown (chart geometry doesn't shift)", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
+    await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
+    await page.waitForTimeout(2500);
+
+    const canvas = page.locator("canvas.cathode-candle-canvas").first();
+    const before = await canvas.boundingBox();
+
+    // Trackpad-style horizontal scroll over the chart used to trigger
+    // cathode's scroll handler, compressing candles into the left third.
+    // The wheel blocker should prevent it.
+    await canvas.hover({ position: { x: 200, y: 100 } });
+    await page.mouse.wheel(-100, 0);   // horizontal scroll
+    await page.mouse.wheel(0, 100);    // vertical scroll
+    await page.waitForTimeout(300);
+
+    // Mousedown on the chart (no drag) — should be blocked, not interpreted
+    // as a pan-start.
+    await page.mouse.down();
+    await page.waitForTimeout(100);
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+
+    // The canvas DOM box shouldn't change; we're verifying the LENS PIN
+    // and chart-view state both survive. Lens-pinned button is still amber.
+    const pinButton = page.getByRole("button", { name: /Lens pinned|Pin lens/ });
+    await expect(pinButton).toContainText("Lens pinned");
+
+    const after = await canvas.boundingBox();
+    if (before && after) {
+      expect(after.x).toBeCloseTo(before.x, 0);
+      expect(after.width).toBeCloseTo(before.width, 0);
+    }
+
+    await page.screenshot({ path: "tests/e2e/screenshots/pin-lens-after-wheel.png", fullPage: true });
+  });
+
   test("Pin-lens survives toolbar hover", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();

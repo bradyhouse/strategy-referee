@@ -106,23 +106,37 @@ function pinLensAtEntry() {
   lensFrozen.value = true;
 }
 
-// Cathode listens for mousemove + mouseleave + pointerleave on the canvas;
-// any of those can move or clear the lens. To keep the lens pinned we block
-// all three at capture phase. attach/detach centralised so the togglePinLens
-// + auto-pin paths stay in sync.
+// Cathode wires several interactions to the canvas — any of them can move
+// the lens, clear it, OR change the chart's scroll/zoom state. To keep
+// the lens pinned AND the chart view frozen we block them all at capture
+// phase:
+//   mousemove / pointermove   → moves the lens
+//   mouseleave / mouseout
+//   pointerleave / pointerout → clears the lens to (-999, -999) sentinel
+//   wheel                     → cathode's scroll/zoom handler. Trackpad
+//                              users naturally generate wheel events when
+//                              the cursor passes over the chart; this was
+//                              compressing candles into the left third
+//                              of the chart.
+//   mousedown                 → drag-pan; could shift the visible window
+//                              even if the user only meant to click
+//   touchstart                → mobile equivalent of mousedown
+// attach/detach centralised so the togglePinLens + auto-pin paths stay
+// in sync.
+const PIN_BLOCKED_EVENTS = [
+  "mousemove", "mouseleave", "mouseout",
+  "pointerleave", "pointerout",
+  "wheel", "mousedown", "touchstart",
+];
 function attachPinBlockers(canvas) {
-  canvas.addEventListener("mousemove",    blockMousemove, true);
-  canvas.addEventListener("mouseleave",   blockMousemove, true);
-  canvas.addEventListener("mouseout",     blockMousemove, true);
-  canvas.addEventListener("pointerleave", blockMousemove, true);
-  canvas.addEventListener("pointerout",   blockMousemove, true);
+  for (const ev of PIN_BLOCKED_EVENTS) {
+    canvas.addEventListener(ev, blockMousemove, true);
+  }
 }
 function detachPinBlockers(canvas) {
-  canvas.removeEventListener("mousemove",    blockMousemove, true);
-  canvas.removeEventListener("mouseleave",   blockMousemove, true);
-  canvas.removeEventListener("mouseout",     blockMousemove, true);
-  canvas.removeEventListener("pointerleave", blockMousemove, true);
-  canvas.removeEventListener("pointerout",   blockMousemove, true);
+  for (const ev of PIN_BLOCKED_EVENTS) {
+    canvas.removeEventListener(ev, blockMousemove, true);
+  }
 }
 
 function togglePinLens() {
