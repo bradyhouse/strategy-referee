@@ -381,6 +381,56 @@ function libraryHref(name) {
   return "#";
 }
 
+// Strategy explainer — surfaces the rules of the survivor strategy that
+// matched the verdict, in plain language with the actual numeric params
+// pulled from the emitted spec. Users asked "what IS the strategy in play"
+// because the spec name (rsi_oversold_bounce_daily) wasn't enough on its
+// own; this block answers it.
+const strategyExplainer = computed(() => {
+  const r = result.value;
+  if (!r || !r.spec) return null;
+  const p = r.spec.params || {};
+  const isMfi = r.spec.name?.startsWith("mfi_oversold");
+
+  // Common exit envelope from the spec
+  const slPct = p.sl_pct;
+  const floorPct = p.profit_floor_pct;
+  const tpPct = p.tp_pct;
+  const maxHoldDays = p.max_hold_ms ? Math.round(p.max_hold_ms / 86400000) : null;
+
+  // Per-archetype entry rules in plain language
+  const oscillatorLine = isMfi
+    ? `MFI(14) < ${p.mfi_oversold ?? 20}  — volume-weighted oversold (the move down had real volume behind it)`
+    : `RSI(14) < ${p.rsi_oversold ?? 32}  — momentum oscillator confirms an oversold dip`;
+
+  return {
+    name: r.spec.name,
+    archetype: isMfi ? "mfi_oversold + SMA200" : "rsi_oversold + SMA200",
+    audit: isMfi
+      ? "1 of 2 walk-forward survivors at 1.5% real fees (marginal). 2/10 defensible OOS combos; n=18 mean +0.89%, win 56%."
+      : "1 of 2 walk-forward survivors at 1.5% real fees. 6/10 defensible OOS combos; n=29 mean +0.71%, win 62%.",
+    intuition: "Mean-reversion within an uptrend: wait for a known long-horizon uptrend, buy temporary dips, exit on either disciplined SL, profit floor, or max hold.",
+    entryRules: [
+      { label: "Long-horizon uptrend confirmed", expr: `close > SMA(${p.slow_ma_len ?? 200})` },
+      { label: "Oscillator-confirmed dip",       expr: oscillatorLine },
+      ...(isMfi
+        ? [{ label: "RSI not already recovering", expr: `RSI(14) ≤ ${p.rsi_max ?? 35} — keeps MFI signal from firing on a stale uptick` }]
+        : [{ label: "Price below BB middle",      expr: `close < BB(20,2) middle band — reinforces 'mean to revert to'` }]),
+      { label: "Floor on the oscillator",         expr: isMfi
+          ? `MFI(14) > ${p.mfi_floor ?? 5} — skip catastrophic prints that aren't a 'dip', they're a collapse`
+          : `RSI(14) > ${p.rsi_floor ?? 20} — skip catastrophic prints that aren't a 'dip', they're a collapse`,
+      },
+    ],
+    exitRules: [
+      { label: "Stop-loss",   expr: `${slPct}% from entry — caps loss on a failed buy-the-dip` },
+      { label: "Profit floor", expr: `+${floorPct}% from entry — locks in the modal win the audit data points to` },
+      { label: "Take-profit",  expr: `+${tpPct}% from entry — the rare outsized winner` },
+      { label: "Max hold",     expr: `${maxHoldDays} days — exit even if neither price target hits` },
+    ],
+    direction: "Long only",
+  };
+});
+
 // Honest disclosure — surfaces the "PASS ≠ buy signal" framing inline with
 // the verdict instead of burying it in the README. The verdict-tree panel's
 // green ✓ ✓ ✓ ✓ celebration on a PASS can inadvertently strengthen the
@@ -722,8 +772,73 @@ const trendBadgeClass = computed(() => {
           </div>
         </div>
 
+        <!-- Strategy in play — surfaces the rules of the survivor strategy
+             that matched (or didn't). For REJECT verdicts the spec is null,
+             so this block is hidden — the verdict tree above already shows
+             which gate the token failed. -->
+        <div v-if="strategyExplainer" class="px-6 py-5 border-b border-gray-100 bg-indigo-50/30">
+          <div class="flex items-baseline justify-between mb-2">
+            <h3 class="text-sm font-bold text-gray-900">Strategy in play</h3>
+            <span class="text-xs font-mono text-gray-500">{{ strategyExplainer.archetype }}</span>
+          </div>
+          <p class="text-sm text-gray-700 mb-3">
+            <strong>{{ strategyExplainer.intuition }}</strong>
+          </p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-emerald-200 bg-white p-3">
+              <h4 class="text-xs font-bold text-emerald-800 uppercase tracking-wide mb-2">Entry — all required</h4>
+              <ul class="space-y-1.5 text-xs">
+                <li v-for="(rule, i) in strategyExplainer.entryRules" :key="i" class="flex gap-2">
+                  <span class="text-emerald-600 mt-0.5">✓</span>
+                  <span>
+                    <span class="font-semibold text-gray-900">{{ rule.label }}</span>
+                    <span class="block font-mono text-gray-600 mt-0.5">{{ rule.expr }}</span>
+                  </span>
+                </li>
+              </ul>
+            </div>
+            <div class="rounded-lg border border-rose-200 bg-white p-3">
+              <h4 class="text-xs font-bold text-rose-800 uppercase tracking-wide mb-2">Exit — whichever fires first</h4>
+              <ul class="space-y-1.5 text-xs">
+                <li v-for="(rule, i) in strategyExplainer.exitRules" :key="i" class="flex gap-2">
+                  <span class="text-rose-600 mt-0.5">↳</span>
+                  <span>
+                    <span class="font-semibold text-gray-900">{{ rule.label }}</span>
+                    <span class="block font-mono text-gray-600 mt-0.5">{{ rule.expr }}</span>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <p class="mt-3 text-xs text-gray-500">
+            <strong>{{ strategyExplainer.direction }}</strong> · spec name <code class="font-mono">{{ strategyExplainer.name }}</code> · audit: {{ strategyExplainer.audit }}
+          </p>
+        </div>
+
         <!-- Chart panel — right-click for visual prefs -->
         <div v-if="result.chart?.candles?.length" class="px-6 py-5 border-b border-gray-100">
+          <!-- Legend bar above the chart (prominent so the user can identify
+               the SMA(200) line and the trade markers without hunting through
+               small caption text). Compact pills with color swatches matching
+               the cathode overlay + marker colors. -->
+          <div class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span class="font-semibold text-gray-900">Chart legend:</span>
+            <span class="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200">
+              <span class="inline-block w-4 h-0.5 bg-blue-500 rounded"></span>
+              <span class="font-mono text-blue-900">SMA(200)</span>
+              <span class="text-blue-700/70">— long-horizon trend filter</span>
+            </span>
+            <span v-if="result.forward_look && !result.forward_look.status" class="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200">
+              <span class="inline-block w-0 h-0 border-l-[5px] border-r-[5px] border-b-[7px] border-transparent border-b-emerald-500"></span>
+              <span class="font-mono text-emerald-900">Entry</span>
+              <span class="text-emerald-700/70">— {{ result.forward_look.entry_date }} @ {{ fmtUsd(result.forward_look.entry_price) }}</span>
+            </span>
+            <span v-if="result.forward_look && !result.forward_look.status" class="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200">
+              <span class="inline-block w-0 h-0 border-l-[5px] border-r-[5px] border-t-[7px] border-transparent border-t-rose-500"></span>
+              <span class="font-mono text-rose-900">Exit</span>
+              <span class="text-rose-700/70">— {{ result.forward_look.exit_date }} @ {{ fmtUsd(result.forward_look.exit_price) }} ({{ result.forward_look.reason }})</span>
+            </span>
+          </div>
           <div
             ref="chartContainerRef"
             :class="['h-80 rounded-lg overflow-hidden border', chartContainerBg]"
@@ -744,20 +859,9 @@ const trendBadgeClass = computed(() => {
               :slot-w="6"
             />
           </div>
-          <div class="mt-2 flex items-center gap-4 text-xs text-gray-500">
-            <span class="flex items-center gap-1.5">
-              <span class="inline-block w-3 h-0.5 bg-blue-500"></span>
-              SMA(200)
-            </span>
-            <span v-if="result.forward_look && !result.forward_look.status" class="flex items-center gap-1.5">
-              <span class="inline-block w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-emerald-500"></span>
-              Entry @ {{ result.forward_look.entry_date }}
-            </span>
-            <span v-if="result.forward_look && !result.forward_look.status" class="flex items-center gap-1.5">
-              <span class="inline-block w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-rose-500"></span>
-              Exit @ {{ result.forward_look.exit_date }} ({{ result.forward_look.reason }})
-            </span>
-          </div>
+          <p class="mt-2 text-xs text-gray-500 italic">
+            Candles + SMA(200) overlay from <a href="https://www.npmjs.com/package/@stratchai/cathode" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/cathode</a>. Hover to see OHLC. The lens follows your cursor.
+          </p>
         </div>
 
         <!-- Verdict tree: structured walk-forward survivor gate -->
