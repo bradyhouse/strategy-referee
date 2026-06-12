@@ -11,10 +11,11 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Verdict views — visual smokes", () => {
-  test("PASS verdict on TON 2026-05-24 preset", async ({ page }) => {
+  test("PASS verdict on form defaults (TON 2026-05-24)", async ({ page }) => {
     await page.goto("/");
-    // Click the prominent preset chip; this should fire a guaranteed PASS.
-    await page.getByRole("button", { name: /TON · 2026-05-24/ }).click();
+    // Form defaults to TON / 2026-05-24 — first-click demo. No preset
+    // click needed; just hit Evaluate.
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
     // Wait for the verdict card to land + the auto-pin sequence to finish
     // (1500ms retry + a bit of cathode shader warm-up time).
     await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
@@ -35,7 +36,7 @@ test.describe("Verdict views — visual smokes", () => {
 
   test("TON chart region — labels above chart, triangles inside", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /TON · 2026-05-24/ }).click();
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
     await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
     await page.waitForTimeout(2500);
 
@@ -98,10 +99,11 @@ test.describe("Verdict views — visual smokes", () => {
 
   test("REJECT verdict on bare BTC — rejection-as-feature framing", async ({ page }) => {
     await page.goto("/");
-    // Default token is ETH; switch to BTC and submit with blank date for
-    // real-time eval. Bare BTC should reject for BELOW_SMA200 in current
-    // market conditions.
+    // Form defaults are TON / 2026-05-24. To get BARE BTC live eval, we
+    // overwrite the token AND clear the date. Real-time bare BTC should
+    // REJECT for BELOW_SMA200 in current market conditions.
     await page.getByPlaceholder(/BTC|ETH/).fill("BTC");
+    await page.locator('input[type="date"]').fill("");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();
     await page.waitForTimeout(3000);
 
@@ -116,7 +118,7 @@ test.describe("Verdict views — visual smokes", () => {
 
   test("Pin-lens survives toolbar hover", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /TON · 2026-05-24/ }).click();
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
     const pinButton = page.getByRole("button", { name: /Lens pinned|Pin lens/ });
     await pinButton.waitFor({ timeout: 5000 });
     await page.waitForTimeout(2500);
