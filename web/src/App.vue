@@ -68,7 +68,35 @@ function trackLastHover(e) {
   if (lensFrozen.value) return;
   lastHoverPos.value = { x: e.clientX, y: e.clientY };
 }
-function blockMousemove(e) { e.stopPropagation(); }
+// Block real user mousemoves but allow synthetic ones through. The
+// isTrusted check distinguishes events fired by the browser (true) from
+// events fired by our own dispatchEvent (false). This lets the lens-seed
+// + auto-pin sequence work even while the blocker is already attached:
+// dispatch a synthetic mousemove → cathode's handler still runs → lens
+// position updates; subsequent real mouse motion gets stopped at capture.
+function blockMousemove(e) {
+  if (!e.isTrusted) return;
+  e.stopPropagation();
+}
+
+// Auto-pin on first paint — the demo flow is "look at a trade," so the lens
+// should land on the entry candle and STAY there without the user having
+// to know about the Pin Lens button. Called from the result-watch after
+// focusMagnifyAtEntry seeds the lens. Idempotent: no-ops if already pinned,
+// or if the verdict has no entry to pin to.
+function pinLensAtEntry() {
+  if (lensFrozen.value) return;
+  if (!magnify.value) return;
+  const container = chartContainerRef.value;
+  if (!container) return;
+  const canvas = container.querySelector("canvas");
+  if (!canvas) return;
+  const r = result.value;
+  if (!r?.chart?.candles?.length || !r.forward_look || r.forward_look.status) return;
+
+  canvas.addEventListener("mousemove", blockMousemove, true);
+  lensFrozen.value = true;
+}
 
 function togglePinLens() {
   if (!chartContainerRef.value) return;
@@ -223,18 +251,29 @@ const maxAtDate = computed(() => {
   return d.toISOString().slice(0, 10);
 });
 
-// watch-result-magnify: after the chart renders, attempt to seed the
-// magnify lens at the entry marker. Registered here (post-`result`
-// declaration) to avoid TDZ. setTimeout > nextTick because cathode's
-// three.js shader takes a moment to warm up on first frame. Three
-// retries cover the worst case (first-load shader compile) without
-// being noticeably "twitchy" if the lens already sits where we want.
+// watch-result-magnify: after the chart renders, seed the magnify lens at
+// the entry marker AND auto-pin it there. The demo flow is "look at a
+// trade" — defaulting to a pinned lens on the entry candle is what users
+// expect, and avoids forcing them to discover the Pin button. The
+// auto-pin runs once per result; if the user clicks "Unpin" to explore,
+// their unpinned state is respected until the next Evaluate / preset click.
+//
+// setTimeout > nextTick because cathode's three.js shader takes a moment
+// to warm up on first frame. Three seed retries cover the worst case
+// (first-load shader compile); the final retry also pins.
 watch(result, async (r) => {
   if (!r) return;
+  // Reset pin state because the canvas has been replaced by Vue's re-render.
+  // The old canvas's blocker listener went with the old DOM node; pinLensAtEntry
+  // will attach a new one below.
+  lensFrozen.value = false;
   await nextTick();
   setTimeout(focusMagnifyAtEntry, 250);
   setTimeout(focusMagnifyAtEntry, 700);
-  setTimeout(focusMagnifyAtEntry, 1400);
+  setTimeout(() => {
+    focusMagnifyAtEntry();
+    pinLensAtEntry();
+  }, 1500);
 });
 
 // Watchlist state
