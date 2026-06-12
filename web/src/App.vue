@@ -577,14 +577,15 @@ const tradeWindowGeometry = computed(() => {
   const bandLeft  = entryX - CC_SLOT_W_PX / 2;
   const bandRight = exitX  + CC_SLOT_W_PX / 2;
 
-  // Labels collide when the entry/exit triangles are too close together
-  // (typical 6-day trade leaves them ~36px apart vs ~130px label widths).
-  // When collision detected, stagger the exit label below the entry label
-  // so both prices remain readable. Drop-line lengths adjust too.
+  // Labels live in the padding area ABOVE the chart canvas (pt-12 wrapper
+  // gives ~48px of room). They can never collide with the triangles drawn
+  // inside the chart because they're outside it. The only collision left
+  // is two labels meeting horizontally — handled by vertical staggering
+  // within the padding area.
   const LABEL_W = 130;
   const collides = Math.abs(exitX - entryX) < LABEL_W;
-  const entryLabelTop = 8;     // top-2
-  const exitLabelTop  = collides ? 36 : 8;   // ~28px gap below entry label when staggered
+  const entryLabelTop = 0;
+  const exitLabelTop  = collides ? 24 : 0;
 
   return {
     entryX, exitX,
@@ -1077,90 +1078,104 @@ const trendBadgeClass = computed(() => {
               <span class="text-rose-700/70">— {{ result.forward_look.exit_date }} @ {{ fmtUsd(result.forward_look.exit_price) }} ({{ result.forward_look.reason }})</span>
             </span>
           </div>
-          <div
-            ref="chartContainerRef"
-            :class="['relative h-80 rounded-lg overflow-hidden border', chartContainerBg]"
-            @contextmenu.prevent="onChartContextMenu"
-            @mousemove="trackLastHover"
-          >
-            <CathodeCandle
-              :key="`cc-${flat}`"
-              :candles="result.chart.candles"
-              :overlays="chartOverlays"
-              :markers="chartMarkers"
-              :theme="chartTheme"
-              :flat="flat"
-              :compact="false"
-              :curvature="curvature"
-              :scanlines="scanlines"
-              :glow="glow"
-              :magnify="magnify"
-              :slot-w="6"
-            />
-
-            <!-- Chart toolbar overlay: visible button equivalents for the
-                 right-click context menu (which most users don't discover)
-                 plus the lens-pin toggle. Sits top-right, z above all the
-                 chart overlays. pointer-events:auto so clicks register. -->
-            <div class="absolute top-2 right-2 z-20 flex items-center gap-1 pointer-events-auto">
-              <button
-                @click="togglePinLens"
-                :class="[
-                  'px-2 py-1 rounded-md text-[11px] font-medium border shadow-sm transition',
-                  lensFrozen
-                    ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
-                    : 'bg-white/90 backdrop-blur text-gray-700 border-gray-300 hover:bg-white',
-                ]"
-                :title="lensFrozen ? 'Click to release the magnifier' : 'Click to pin the magnifier at the current cursor position'"
-              >
-                {{ lensFrozen ? "🔒 Lens pinned" : "📍 Pin lens" }}
-              </button>
-              <button
-                @click="openDisplayMenuFromButton"
-                class="px-2 py-1 rounded-md text-[11px] font-medium bg-white/90 backdrop-blur text-gray-700 border border-gray-300 shadow-sm hover:bg-white transition"
-                title="Theme, curvature, WebGL, scanlines, glow, magnify (also: right-click anywhere on the chart)"
-              >
-                ⚙ Display
-              </button>
-            </div>
-
-            <!-- Hold-period highlight band: a semi-transparent vertical strip
-                 between the entry and exit candles so the trade-active region
-                 of the chart is visually obvious without studying the markers. -->
-            <div
-              v-if="tradeWindowGeometry"
-              class="pointer-events-none absolute top-0 bottom-0 bg-amber-400/15 border-l border-r border-amber-500/40"
-              :style="{ left: tradeWindowGeometry.bandLeft + 'px', width: tradeWindowGeometry.bandWidth + 'px' }"
-            ></div>
-
-            <!-- Always-visible entry price label, anchored to the top of the
-                 chart with a thin dotted line dropping to the entry candle.
-                 Vertical position staggers when the exit triangle is too
-                 close (typical 6-day trade) so the two labels don't overlap. -->
+          <!-- Wrapper: 48px of padding-top reserves space ABOVE the chart
+               canvas for the price labels. With labels lifted out of the
+               chart container, they can never overlap a cathode triangle
+               regardless of where the trade prices fall in the visible range. -->
+          <div class="relative pt-12">
+            <!-- ENTRY price label, ABOVE the chart canvas. Stagger when the
+                 exit triangle is too close horizontally so the two labels
+                 don't collide with each other. -->
             <div
               v-if="tradeWindowGeometry && result.forward_look"
-              class="pointer-events-none absolute z-10 -translate-x-1/2"
+              class="pointer-events-none absolute z-30 -translate-x-1/2"
               :style="{ left: tradeWindowGeometry.entryX + 'px', top: tradeWindowGeometry.entryLabelTop + 'px' }"
             >
               <div class="bg-emerald-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
                 ▲ ENTRY {{ fmtUsd(result.forward_look.entry_price) }}
               </div>
-              <div class="absolute left-1/2 top-full -translate-x-1/2 w-px border-l border-dashed border-emerald-500/60"
-                   :style="{ height: (300 - tradeWindowGeometry.entryLabelTop) + 'px' }"></div>
             </div>
 
-            <!-- Always-visible exit price label, same shape, rose color,
-                 lower y-position when colliding with entry. -->
+            <!-- EXIT price label, same shape, rose color. -->
             <div
               v-if="tradeWindowGeometry && result.forward_look"
-              class="pointer-events-none absolute z-10 -translate-x-1/2"
+              class="pointer-events-none absolute z-30 -translate-x-1/2"
               :style="{ left: tradeWindowGeometry.exitX + 'px', top: tradeWindowGeometry.exitLabelTop + 'px' }"
             >
               <div class="bg-rose-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
                 ▼ EXIT {{ fmtUsd(result.forward_look.exit_price) }}
               </div>
-              <div class="absolute left-1/2 top-full -translate-x-1/2 w-px border-l border-dashed border-rose-500/60"
-                   :style="{ height: (300 - tradeWindowGeometry.exitLabelTop) + 'px' }"></div>
+            </div>
+
+            <div
+              ref="chartContainerRef"
+              :class="['relative h-80 rounded-lg overflow-hidden border', chartContainerBg]"
+              @contextmenu.prevent="onChartContextMenu"
+              @mousemove="trackLastHover"
+            >
+              <CathodeCandle
+                :key="`cc-${flat}`"
+                :candles="result.chart.candles"
+                :overlays="chartOverlays"
+                :markers="chartMarkers"
+                :theme="chartTheme"
+                :flat="flat"
+                :compact="false"
+                :curvature="curvature"
+                :scanlines="scanlines"
+                :glow="glow"
+                :magnify="magnify"
+                :slot-w="6"
+              />
+
+              <!-- Chart toolbar overlay: visible button equivalents for the
+                   right-click context menu (which most users don't discover)
+                   plus the lens-pin toggle. Sits top-right, z above all the
+                   chart overlays. pointer-events:auto so clicks register. -->
+              <div class="absolute top-2 right-2 z-20 flex items-center gap-1 pointer-events-auto">
+                <button
+                  @click="togglePinLens"
+                  :class="[
+                    'px-2 py-1 rounded-md text-[11px] font-medium border shadow-sm transition',
+                    lensFrozen
+                      ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                      : 'bg-white/90 backdrop-blur text-gray-700 border-gray-300 hover:bg-white',
+                  ]"
+                  :title="lensFrozen ? 'Click to release the magnifier' : 'Click to pin the magnifier at the current cursor position'"
+                >
+                  {{ lensFrozen ? "🔒 Lens pinned" : "📍 Pin lens" }}
+                </button>
+                <button
+                  @click="openDisplayMenuFromButton"
+                  class="px-2 py-1 rounded-md text-[11px] font-medium bg-white/90 backdrop-blur text-gray-700 border border-gray-300 shadow-sm hover:bg-white transition"
+                  title="Theme, curvature, WebGL, scanlines, glow, magnify (also: right-click anywhere on the chart)"
+                >
+                  ⚙ Display
+                </button>
+              </div>
+
+              <!-- Hold-period highlight band: semi-transparent vertical strip
+                   between entry and exit candles. -->
+              <div
+                v-if="tradeWindowGeometry"
+                class="pointer-events-none absolute top-0 bottom-0 bg-amber-400/15 border-l border-r border-amber-500/40"
+                :style="{ left: tradeWindowGeometry.bandLeft + 'px', width: tradeWindowGeometry.bandWidth + 'px' }"
+              ></div>
+
+              <!-- Drop-lines: vertical dotted lines through the chart at the
+                   entry + exit column. Visually connect the labels above the
+                   chart to the cathode triangles inside. Drawn INSIDE the
+                   chart container so they appear on top of the canvas. -->
+              <div
+                v-if="tradeWindowGeometry"
+                class="pointer-events-none absolute top-0 bottom-0 w-px border-l border-dashed border-emerald-500/70 z-10"
+                :style="{ left: tradeWindowGeometry.entryX + 'px' }"
+              ></div>
+              <div
+                v-if="tradeWindowGeometry"
+                class="pointer-events-none absolute top-0 bottom-0 w-px border-l border-dashed border-rose-500/70 z-10"
+                :style="{ left: tradeWindowGeometry.exitX + 'px' }"
+              ></div>
             </div>
           </div>
           <p class="mt-2 text-xs text-gray-500 italic">

@@ -13,7 +13,10 @@
     "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "build:web": "cd web && vite build",
     "serve": "npm run build:web && node server.js",
-    "verify:universe": "node scripts/verify_cmc_universe.js"
+    "verify:universe": "node scripts/verify_cmc_universe.js",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:update": "playwright test --update-snapshots"
   },
   "keywords": [
     "strategy",
@@ -40,6 +43,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@vitejs/plugin-vue": "^5.2.4",
     "autoprefixer": "^10.5.0",
     "concurrently": "^8.2.2",

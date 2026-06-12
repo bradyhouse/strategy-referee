@@ -36,3 +36,8 @@ data/cache/
 
 # Hackathon working notes (planning artifacts, scratch)
 docs/scratch/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
