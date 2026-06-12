@@ -68,12 +68,20 @@ function trackLastHover(e) {
   if (lensFrozen.value) return;
   lastHoverPos.value = { x: e.clientX, y: e.clientY };
 }
-// Block real user mousemoves but allow synthetic ones through. The
+// Block real user mouse events but allow synthetic ones through. The
 // isTrusted check distinguishes events fired by the browser (true) from
 // events fired by our own dispatchEvent (false). This lets the lens-seed
 // + auto-pin sequence work even while the blocker is already attached:
 // dispatch a synthetic mousemove → cathode's handler still runs → lens
 // position updates; subsequent real mouse motion gets stopped at capture.
+//
+// Used for mousemove AND mouseleave / pointerleave. Cathode's mouseleave
+// handler sets the lens position to (-999, -999) — a sentinel that makes
+// the WebGL renderer set lensR=0 (lens invisible). The lens "disappears"
+// the moment the cursor crosses onto a toolbar button (Pin / Display),
+// any DOM element with pointer-events:auto, or even the chart border. So
+// the leave events need to be intercepted too, or the lens is lost the
+// first time the user moves their mouse anywhere near the toolbar.
 function blockMousemove(e) {
   if (!e.isTrusted) return;
   e.stopPropagation();
@@ -94,8 +102,27 @@ function pinLensAtEntry() {
   const r = result.value;
   if (!r?.chart?.candles?.length || !r.forward_look || r.forward_look.status) return;
 
-  canvas.addEventListener("mousemove", blockMousemove, true);
+  attachPinBlockers(canvas);
   lensFrozen.value = true;
+}
+
+// Cathode listens for mousemove + mouseleave + pointerleave on the canvas;
+// any of those can move or clear the lens. To keep the lens pinned we block
+// all three at capture phase. attach/detach centralised so the togglePinLens
+// + auto-pin paths stay in sync.
+function attachPinBlockers(canvas) {
+  canvas.addEventListener("mousemove",    blockMousemove, true);
+  canvas.addEventListener("mouseleave",   blockMousemove, true);
+  canvas.addEventListener("mouseout",     blockMousemove, true);
+  canvas.addEventListener("pointerleave", blockMousemove, true);
+  canvas.addEventListener("pointerout",   blockMousemove, true);
+}
+function detachPinBlockers(canvas) {
+  canvas.removeEventListener("mousemove",    blockMousemove, true);
+  canvas.removeEventListener("mouseleave",   blockMousemove, true);
+  canvas.removeEventListener("mouseout",     blockMousemove, true);
+  canvas.removeEventListener("pointerleave", blockMousemove, true);
+  canvas.removeEventListener("pointerout",   blockMousemove, true);
 }
 
 function togglePinLens() {
@@ -103,7 +130,7 @@ function togglePinLens() {
   const canvas = chartContainerRef.value.querySelector("canvas");
   if (!canvas) return;
   if (lensFrozen.value) {
-    canvas.removeEventListener("mousemove", blockMousemove, true);
+    detachPinBlockers(canvas);
     lensFrozen.value = false;
     return;
   }
@@ -114,12 +141,13 @@ function togglePinLens() {
     const r = chartContainerRef.value.getBoundingClientRect();
     pos = { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
   }
-  // First fire a synthetic mousemove at the pin position to make sure
-  // cathode's lens is sitting where the user expects, THEN block.
+  // Fire a synthetic mousemove at the pin position so the lens sits where
+  // the user expects, then block. isTrusted distinguishes our event from
+  // real ones so this works whether blockers are attached first or last.
   canvas.dispatchEvent(new MouseEvent("mousemove", {
     clientX: pos.x, clientY: pos.y, bubbles: true, cancelable: true,
   }));
-  canvas.addEventListener("mousemove", blockMousemove, true);
+  attachPinBlockers(canvas);
   lensFrozen.value = true;
 }
 function closeChartContextMenu() { chartContextMenu.value = null; }
