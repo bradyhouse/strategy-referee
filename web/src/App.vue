@@ -416,10 +416,25 @@ function drillIn(row) {
   evaluate();
 }
 
+// Tracks whether the user has visited watchlist mode at least once. The
+// first visit auto-pre-fills the watchlist inputs with the proven
+// 3-PASS historical demo (Crypto majors @ 2025-09-25), the same UX
+// principle as the single-mode TON / 2026-05-24 defaults. Without this
+// the user would inherit atDate=2026-05-24 from single mode and every
+// major in the default watchlist would REJECT (only TON passed on
+// that date) — looking like the tool is broken.
+const watchlistInitialized = ref(false);
+
 function switchMode(newMode) {
+  if (newMode === mode.value) return;
   mode.value = newMode;
   error.value = null;
   watchlistError.value = null;
+  if (newMode === "watchlist" && !watchlistInitialized.value) {
+    watchlistInput.value = "BTC, ETH, SOL, LINK, ADA, DOGE";
+    atDate.value = "2025-09-25";
+    watchlistInitialized.value = true;
+  }
 }
 
 // Chart overlays + markers derived from result.chart + result.forward_look.

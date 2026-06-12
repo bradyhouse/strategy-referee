@@ -116,6 +116,28 @@ test.describe("Verdict views — visual smokes", () => {
     await page.screenshot({ path: "tests/e2e/screenshots/reject-btc-full.png", fullPage: true });
   });
 
+  test("Watchlist mode auto-pre-fills with historical 3-PASS demo on first switch", async ({ page }) => {
+    await page.goto("/");
+    // Switch to Watchlist mode. The auto-pre-fill should set both the
+    // token list AND the date to the historical multi-PASS demo so the
+    // first Scan click produces meaningful results — NOT 6 REJECTs from
+    // the inherited TON / 2026-05-24 single-mode defaults.
+    await page.getByRole("button", { name: /^Watchlist$/ }).click();
+
+    // Date input should now show 2025-09-25
+    const dateInput = page.locator('input[type="date"]');
+    await expect(dateInput).toHaveValue("2025-09-25");
+    // Token list should show the crypto majors
+    await expect(page.locator('input[placeholder*="BTC"]')).toHaveValue(/BTC.*ETH.*SOL.*LINK.*ADA.*DOGE/);
+
+    // Run the scan and verify at least 3 PASS results (the original 3-PASS demo)
+    await page.getByRole("button", { name: /^Scan$/ }).click();
+    await page.waitForTimeout(8000);  // 6 tokens × ~1s each
+
+    const passCount = await page.locator('span:has-text("PASS")').count();
+    expect(passCount).toBeGreaterThanOrEqual(3);   // PASS badge appears in the table + at least one in the tally
+  });
+
   test("Pin-lens survives toolbar hover", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();
