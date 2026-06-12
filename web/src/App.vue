@@ -381,6 +381,41 @@ function libraryHref(name) {
   return "#";
 }
 
+// Honest disclosure — surfaces the "PASS ≠ buy signal" framing inline with
+// the verdict instead of burying it in the README. The verdict-tree panel's
+// green ✓ ✓ ✓ ✓ celebration on a PASS can inadvertently strengthen the
+// "this token will go up" misread. This callout makes the population-level
+// claim explicit at the point the user is most likely to misinterpret it.
+// Only fires for verdicts that emit a spec (PASS, oversold-WATCH). REJECT
+// and near-trigger WATCH don't need it — their gate failure is the message.
+const honestDisclosure = computed(() => {
+  const r = result.value;
+  if (!r || !r.spec) return null;
+  if (r.verdict === "PASS") {
+    return {
+      heading: "What PASS actually means",
+      summary: "Structural match with the walk-forward survivor family — NOT a buy signal for this specific token at this date.",
+      bullets: [
+        "Population-level edge: n=29 OOS trades, mean +0.71%/trade net at 1.5% real fees, win rate 62%. Magnitude is small.",
+        "~38% of those audit trades were losers. Any single trade — including this one — can fall on either side; the survivor family's edge is the slight asymmetry in aggregate, not per-trade conviction.",
+        "Honest use: download the spec, backtest on your own universe + recent bars, treat as one bet at this fingerprint in a portfolio with disciplined sizing. Respect the spec's exit envelope (SL ~-8%, profit floor ~+10%, max hold ~10 days).",
+      ],
+    };
+  }
+  if (r.verdict === "WATCH") {
+    return {
+      heading: "What this WATCH actually means",
+      summary: "Survivor-family structural match BUT the sma_distance regime is in the elevated-risk bucket. Worse than a PASS, not a buy signal.",
+      bullets: [
+        "Walk-forward regime conditioning on n=11 (underpowered) showed the sma_distance < 5% bucket lost -0.55% mean — the OPPOSITE sign from the favorable bucket the PASS verdict uses.",
+        "Sample is too small to be confident, but the directional risk is real. Read it as 'survivor pattern firing in a worse-than-typical regime,' not as 'almost a PASS.'",
+        "Honest use: if you backtest the emitted spec on your universe, pay specific attention to the elevated-risk regime split before sizing into setups that match this verdict.",
+      ],
+    };
+  }
+  return null;
+});
+
 // Verdict styling
 const verdictClass = computed(() => {
   if (!result.value) return "";
@@ -781,6 +816,25 @@ const trendBadgeClass = computed(() => {
           <p v-else class="mt-3 text-xs text-gray-500">
             Survivor family near-trigger but no full match → informational WATCH, no spec emitted.
           </p>
+
+          <!-- Honest disclosure callout (PASS / oversold-WATCH only). Sits inline
+               with the green-✓ celebration so the population-level claim is
+               adjacent to the conditions that triggered it. -->
+          <div v-if="honestDisclosure" class="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+            <div class="flex items-start gap-3">
+              <span class="flex-shrink-0 mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold">!</span>
+              <div class="text-sm flex-1">
+                <p class="font-semibold text-amber-900 mb-1">{{ honestDisclosure.heading }}</p>
+                <p class="text-amber-900/90 leading-relaxed mb-2">{{ honestDisclosure.summary }}</p>
+                <ul class="space-y-1 text-xs text-amber-900/80">
+                  <li v-for="(b, i) in honestDisclosure.bullets" :key="i" class="leading-snug flex gap-2">
+                    <span class="text-amber-700">•</span>
+                    <span>{{ b }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Reasoning notes (secondary prose with audit context) -->
