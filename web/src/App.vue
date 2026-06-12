@@ -153,10 +153,27 @@ const mode = ref("single"); // "single" | "watchlist"
 
 // Single-token state
 const token = ref("ETH");
-const atDate = ref("2025-09-25");
+// Default atDate to BLANK — real-time evaluation against the latest Kraken bar.
+// The historical-PASS-demo flow runs through the preset chips below, which
+// set both token and atDate together. Pre-filling with a specific historical
+// date (the prior 2025-09-25 default) confused users who didn't recognize
+// it as a curated demo date; making blank the default is the honest UX.
+const atDate = ref("");
 const loading = ref(false);
 const result = ref(null);
 const error = ref(null);
+
+// Max selectable as-of date is TODAY - 2 calendar days. Setting as-of to
+// today would slice in the in-progress daily bar from Kraken (close = current
+// ticker, high/low/volume partial), polluting RSI / MFI / SMA200. T-1 is the
+// first complete bar; T-2 gives the forward-look at least one bar of data
+// to walk through. Re-computes once on mount since the page won't survive
+// a day boundary.
+const maxAtDate = computed(() => {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 2);
+  return d.toISOString().slice(0, 10);
+});
 
 // watch-result-magnify: after the chart renders, attempt to seed the
 // magnify lens at the entry marker. Registered here (post-`result`
@@ -428,8 +445,9 @@ const trendBadgeClass = computed(() => {
             v-model="atDate"
             type="date"
             class="px-3 py-1.5 rounded-md border border-gray-300 text-sm font-mono"
-            :max="new Date().toISOString().slice(0, 10)"
+            :max="maxAtDate"
           />
+          <span class="text-xs text-gray-400" v-if="!atDate">leave blank for real-time</span>
         </div>
       </div>
     </div>
@@ -453,16 +471,24 @@ const trendBadgeClass = computed(() => {
           {{ loading ? "Evaluating..." : "Evaluate" }}
         </button>
       </div>
-      <div class="flex items-center gap-2 text-sm">
-        <span class="text-xs text-gray-500">Or try a known historical PASS:</span>
-        <button
-          v-for="p in presets"
-          :key="p.label"
-          @click="loadPreset(p)"
-          class="px-3 py-1 rounded-full border border-gray-300 text-xs hover:bg-gray-50"
-        >
-          {{ p.label }}
-        </button>
+      <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold">▶</span>
+          <span class="text-sm font-semibold text-emerald-900">Guided demo — click a known historical PASS</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            v-for="p in presets"
+            :key="p.label"
+            @click="loadPreset(p)"
+            class="px-3 py-1.5 rounded-md bg-white border border-emerald-300 text-sm font-medium text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 transition"
+          >
+            {{ p.label }}
+          </button>
+        </div>
+        <p class="mt-2 text-xs text-emerald-800/70">
+          Each preset sets the token + as-of date together. The chosen date is when the survivor-family gate fired on this token; the result includes the full forward-look ("what would have happened if you entered here").
+        </p>
       </div>
     </div>
 
