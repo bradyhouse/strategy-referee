@@ -24,6 +24,17 @@ const MIN_BARS     = 250;
 // elevated-risk PASS rather than full confidence.
 const ELEVATED_RISK_SMA_DISTANCE_PCT = 5;
 
+// Gate row helpers — emit structured per-condition rows so the UI can render
+// the verdict tree as a visible checklist instead of burying the decision in
+// prose. id is machine-readable, label is the row title, detail is the
+// threshold/comparison being checked, actual is the live values, status is
+// pass | fail | skip ("skip" means an upstream gate already short-circuited so
+// this condition wasn't evaluated), library names the source so judges can see
+// which @stratchai/* package or external data source did the work.
+function gateRow(id, label, detail, actual, status, library) {
+  return { id, label, detail, actual, status, library };
+}
+
 export async function evaluateToken(symbol, opts = {}) {
   const sym = symbol.toUpperCase();
   let cmcQuote;
@@ -79,7 +90,20 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
 
   if (klines.length < MIN_BARS) {
     return reject(sym, "INSUFFICIENT_HISTORY",
-      `Need ≥${MIN_BARS} daily bars to compute SMA(200) reliably; got ${klines.length}. Token is likely too new (or the as-of date is too early).`);
+      `Need ≥${MIN_BARS} daily bars to compute SMA(200) reliably; got ${klines.length}. Token is likely too new (or the as-of date is too early).`,
+      null,
+      {
+        gate: [
+          gateRow("history", "Data availability", `≥${MIN_BARS} daily bars (SMA200 reliability floor)`,
+            `${klines.length} bars (need ${MIN_BARS - klines.length} more)`, "fail", "Kraken public OHLC"),
+          gateRow("uptrend",  "Long-horizon uptrend",      "close > SMA(200)",
+            "—", "skip", "@stratchai/indicators"),
+          gateRow("oversold", "Oscillator-confirmed dip", `RSI(14) < ${RSI_OVERSOLD} OR MFI(14) < ${MFI_OVERSOLD}`,
+            "—", "skip", "@stratchai/indicators"),
+          gateRow("regime",   "Favorable trend regime",   `sma_distance ≥ ${ELEVATED_RISK_SMA_DISTANCE_PCT}%`,
+            "—", "skip", "@stratchai/indicators"),
+        ],
+      });
   }
 
   // Indicator pipeline
@@ -143,18 +167,42 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
     as_of_time: asOfDateMs != null ? klines[i].closeTime : null,
   };
 
+  // Build the verdict tree as structured rows. Each return path slices the
+  // common prefix off and appends row-specific status. Skipped rows reflect
+  // upstream short-circuits — judges can see which condition stopped the
+  // strategy from firing without parsing prose.
+  const gateBase = [
+    gateRow("history", "Data availability", `≥${MIN_BARS} daily bars (SMA200 reliability floor)`,
+      `${klines.length} bars`, "pass", "Kraken public OHLC"),
+  ];
+
   // Decision tree
   if (lastClose <= lastSma) {
     return reject(sym, "BELOW_SMA200",
       `Close ${signals.close} is at or below SMA200 ${signals.sma200} (Δ ${signals.sma_distance_pct}%). The survivor family requires a long-horizon uptrend filter; do not enter long.`,
       signals,
-      { chart });
+      {
+        chart,
+        gate: [
+          ...gateBase,
+          gateRow("uptrend",  "Long-horizon uptrend",     "close > SMA(200)",
+            `${signals.close} ≤ ${signals.sma200} (Δ ${signals.sma_distance_pct}%)`, "fail", "@stratchai/indicators"),
+          gateRow("oversold", "Oscillator-confirmed dip", `RSI(14) < ${RSI_OVERSOLD} OR MFI(14) < ${MFI_OVERSOLD}`,
+            "—", "skip", "@stratchai/indicators"),
+          gateRow("regime",   "Favorable trend regime",   `sma_distance ≥ ${ELEVATED_RISK_SMA_DISTANCE_PCT}%`,
+            "—", "skip", "@stratchai/indicators"),
+        ],
+      });
   }
 
   const oversoldRsi = lastRsi < RSI_OVERSOLD;
   const oversoldMfi = lastMfi < MFI_OVERSOLD;
   const nearRsi     = lastRsi < RSI_NEAR;
   const nearMfi     = lastMfi < MFI_NEAR;
+
+  // Uptrend passed; build the next gate row for it (shared by all downstream paths).
+  const gateUptrendRow = gateRow("uptrend", "Long-horizon uptrend", "close > SMA(200)",
+    `${signals.close} > ${signals.sma200} (Δ ${signals.sma_distance_pct}%)`, "pass", "@stratchai/indicators");
 
   if (oversoldRsi || oversoldMfi) {
     const oscillator = oversoldRsi ? "RSI" : "MFI";
@@ -199,6 +247,11 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
       ? new Date(asOfDateMs).toISOString().slice(0, 10)
       : null;
 
+    const gateOversoldRow = gateRow("oversold", "Oscillator-confirmed dip",
+      `RSI(14) < ${RSI_OVERSOLD} OR MFI(14) < ${MFI_OVERSOLD}`,
+      `${oscillator}(14) = ${r2(oscValue)} < ${threshold}`,
+      "pass", "@stratchai/indicators");
+
     if (smaDistancePct < ELEVATED_RISK_SMA_DISTANCE_PCT) {
       return {
         verdict: "WATCH",
@@ -209,6 +262,14 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
           `${oscillator}(14) = ${r2(oscValue)} confirms oversold (< ${threshold}).`,
           `Long-horizon uptrend confirmed (close ${signals.close} > SMA200 ${signals.sma200}).`,
           `BUT sma_distance ${signals.sma_distance_pct}% < ${ELEVATED_RISK_SMA_DISTANCE_PCT}% — close is in the elevated-risk regime bucket. Walk-forward regime conditioning (n=11, underpowered) showed this bucket lost -0.55% mean. Treat as elevated-risk WATCH rather than full-confidence PASS.`,
+        ],
+        gate: [
+          ...gateBase,
+          gateUptrendRow,
+          gateOversoldRow,
+          gateRow("regime", "Favorable trend regime", `sma_distance ≥ ${ELEVATED_RISK_SMA_DISTANCE_PCT}%`,
+            `${signals.sma_distance_pct}% < ${ELEVATED_RISK_SMA_DISTANCE_PCT}% — elevated-risk bucket (-0.55% mean on n=11)`,
+            "fail", "@stratchai/indicators"),
         ],
         spec,
         backtest,
@@ -228,6 +289,13 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
         `sma_distance ${signals.sma_distance_pct}% is in the favorable regime bucket (>= ${ELEVATED_RISK_SMA_DISTANCE_PCT}%).`,
         `Setup matches the walk-forward survivor family. Audit context: rsi_oversold + SMA200 had 6/10 defensible OOS combos at 1.5% real fees, n=29 mean +0.71%, win 62%. NOT a prediction for this specific token — see honest disclosure in README.`,
       ],
+      gate: [
+        ...gateBase,
+        gateUptrendRow,
+        gateOversoldRow,
+        gateRow("regime", "Favorable trend regime", `sma_distance ≥ ${ELEVATED_RISK_SMA_DISTANCE_PCT}%`,
+          `${signals.sma_distance_pct}% ≥ ${ELEVATED_RISK_SMA_DISTANCE_PCT}%`, "pass", "@stratchai/indicators"),
+      ],
       spec,
       backtest,
       forward_look: forwardLook,
@@ -236,6 +304,10 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
   }
 
   if (nearRsi || nearMfi) {
+    const nearOsc   = nearRsi ? "RSI" : "MFI";
+    const nearVal   = nearRsi ? r2(lastRsi) : r2(lastMfi);
+    const nearThr   = nearRsi ? RSI_NEAR : MFI_NEAR;
+    const trueThr   = nearRsi ? RSI_OVERSOLD : MFI_OVERSOLD;
     return {
       verdict: "WATCH",
       symbol:  sym,
@@ -245,6 +317,15 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
         `Long-horizon uptrend confirmed (close > SMA200).`,
         `No entry signal yet. Watch for further weakness; re-evaluate on next daily close.`,
       ],
+      gate: [
+        ...gateBase,
+        gateUptrendRow,
+        gateRow("oversold", "Oscillator-confirmed dip", `RSI(14) < ${RSI_OVERSOLD} OR MFI(14) < ${MFI_OVERSOLD}`,
+          `${nearOsc}(14) = ${nearVal} below 'near' (${nearThr}) but above oversold (${trueThr}) — no entry signal`,
+          "fail", "@stratchai/indicators"),
+        gateRow("regime", "Favorable trend regime", `sma_distance ≥ ${ELEVATED_RISK_SMA_DISTANCE_PCT}%`,
+          "—", "skip", "@stratchai/indicators"),
+      ],
       chart,
     };
   }
@@ -252,7 +333,18 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
   return reject(sym, "NO_OVERSOLD_SIGNAL",
     `RSI(14) ${signals.rsi}, MFI(14) ${signals.mfi}. Neither below the oversold thresholds (${RSI_OVERSOLD} / ${MFI_OVERSOLD}). The survivor family requires an oscillator-confirmed dip — no entry signal.`,
     signals,
-    { chart });
+    {
+      chart,
+      gate: [
+        ...gateBase,
+        gateUptrendRow,
+        gateRow("oversold", "Oscillator-confirmed dip", `RSI(14) < ${RSI_OVERSOLD} OR MFI(14) < ${MFI_OVERSOLD}`,
+          `RSI = ${signals.rsi}, MFI = ${signals.mfi} — neither oversold`,
+          "fail", "@stratchai/indicators"),
+        gateRow("regime", "Favorable trend regime", `sma_distance ≥ ${ELEVATED_RISK_SMA_DISTANCE_PCT}%`,
+          "—", "skip", "@stratchai/indicators"),
+      ],
+    });
 }
 
 function reject(symbol, code, message, signals = null, extras = {}) {

@@ -344,6 +344,26 @@ function fmtNum(n, decimals = 2) {
   return Number(n).toFixed(decimals);
 }
 
+// Gate row styling — subtle row tint by status so PASS/FAIL/SKIP are scannable.
+function gateRowClass(status) {
+  if (status === "pass") return "bg-emerald-50/40";
+  if (status === "fail") return "bg-rose-50/40";
+  return "";
+}
+
+// Library / data-source name → docs link. Keeps the "Via" column clickable
+// so judges can verify the lib stack mid-demo without leaving the page.
+function libraryHref(name) {
+  if (!name) return "#";
+  if (name.startsWith("@stratchai/")) {
+    const pkg = name.replace("@stratchai/", "");
+    return `https://www.npmjs.com/package/@stratchai/${pkg}`;
+  }
+  if (name.startsWith("Kraken")) return "https://docs.kraken.com/api/docs/rest-api/get-ohlc-data/";
+  if (name.startsWith("CoinMarketCap") || name.startsWith("CMC")) return "https://coinmarketcap.com/api/documentation/v1/";
+  return "#";
+}
+
 // Verdict styling
 const verdictClass = computed(() => {
   if (!result.value) return "";
@@ -679,14 +699,70 @@ const trendBadgeClass = computed(() => {
           </div>
         </div>
 
-        <!-- Reasoning -->
-        <div class="px-6 py-5 border-b border-gray-100">
-          <h3 class="text-sm font-bold text-gray-900 mb-2">
-            Why this is {{ result.verdict === "PASS" ? "a PASS" : result.verdict === "REJECT" ? "REJECTED" : "WATCH" }}
-          </h3>
+        <!-- Verdict tree: structured walk-forward survivor gate -->
+        <div v-if="result.gate?.length" class="px-6 py-5 border-b border-gray-100">
+          <div class="flex items-baseline justify-between mb-3">
+            <h3 class="text-sm font-bold text-gray-900">Walk-forward survivor gate</h3>
+            <span class="text-xs text-gray-500">
+              {{ result.gate.filter(g => g.status === "pass").length }} pass ·
+              {{ result.gate.filter(g => g.status === "fail").length }} fail ·
+              {{ result.gate.filter(g => g.status === "skip").length }} skipped
+            </span>
+          </div>
+          <div class="rounded-lg border border-gray-200 overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 font-semibold">
+                <tr>
+                  <th class="text-left px-3 py-2 w-12"></th>
+                  <th class="text-left px-3 py-2">Condition</th>
+                  <th class="text-left px-3 py-2">Threshold</th>
+                  <th class="text-left px-3 py-2">Actual</th>
+                  <th class="text-left px-3 py-2 w-44">Via</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <tr v-for="g in result.gate" :key="g.id" :class="gateRowClass(g.status)">
+                  <td class="px-3 py-2 text-center">
+                    <span v-if="g.status === 'pass'"
+                          class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold">✓</span>
+                    <span v-else-if="g.status === 'fail'"
+                          class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-500 text-white text-xs font-bold">✗</span>
+                    <span v-else
+                          class="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-300 text-gray-400 text-xs font-bold">○</span>
+                  </td>
+                  <td class="px-3 py-2 font-medium text-gray-900">{{ g.label }}</td>
+                  <td class="px-3 py-2 text-gray-600 font-mono text-xs">{{ g.detail }}</td>
+                  <td class="px-3 py-2 font-mono text-xs"
+                      :class="g.status === 'pass' ? 'text-emerald-700' : g.status === 'fail' ? 'text-rose-700' : 'text-gray-400'">
+                    {{ g.actual }}
+                  </td>
+                  <td class="px-3 py-2">
+                    <a :href="libraryHref(g.library)" target="_blank" rel="noopener"
+                       class="text-xs font-mono text-gray-500 hover:text-gray-900 hover:underline">
+                      {{ g.library }}
+                    </a>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-if="result.spec" class="mt-3 text-xs text-gray-500">
+            All conditions pass → strategy spec emitted: <code class="font-mono text-gray-700">{{ result.spec.name }}</code>
+          </p>
+          <p v-else-if="result.verdict === 'REJECT'" class="mt-3 text-xs text-gray-500">
+            One or more conditions failed → no spec emitted. <strong>Rejection-as-feature</strong>: most live-token queries return REJECT, by design, because the survivor family is narrow.
+          </p>
+          <p v-else class="mt-3 text-xs text-gray-500">
+            Survivor family near-trigger but no full match → informational WATCH, no spec emitted.
+          </p>
+        </div>
+
+        <!-- Reasoning notes (secondary prose with audit context) -->
+        <div v-if="result.reasoning?.length" class="px-6 py-5 border-b border-gray-100 bg-gray-50/50">
+          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Notes</h3>
           <ul class="space-y-1.5">
-            <li v-for="(line, i) in result.reasoning" :key="i" class="text-sm text-gray-700 flex gap-2">
-              <span :class="['mt-1.5 w-1 h-1 rounded-full flex-shrink-0', verdictClass]"></span>
+            <li v-for="(line, i) in result.reasoning" :key="i" class="text-xs text-gray-600 flex gap-2">
+              <span class="mt-1.5 w-1 h-1 rounded-full flex-shrink-0 bg-gray-400"></span>
               <span>{{ line }}</span>
             </li>
           </ul>
