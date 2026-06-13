@@ -43,7 +43,7 @@ test.describe("Verdict views — visual smokes", () => {
     await expect(logo).toBeVisible();
   });
 
-  test("TON chart region — labels inside chart near triangles", async ({ page }) => {
+  test("TON chart region — entry/exit prices in chart legend bar", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();
     await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
@@ -62,9 +62,13 @@ test.describe("Verdict views — visual smokes", () => {
       clip: { x: 0, y: cropY, width: 1440, height: 480 },
     });
 
-    // Both price labels must be visible
-    await expect(page.locator("text=▲ ENTRY").first()).toBeVisible();
-    await expect(page.locator("text=▼ EXIT").first()).toBeVisible();
+    // Entry + exit prices live in the chart legend bar above the canvas
+    // (in-chart chips were removed — they crowded the triangles). Legend
+    // pill text is "— <date> @ <price>" for each side. TON 2026-05-24 is
+    // the form's default; entry $1.76 → TP exit $2.10 is the canonical
+    // PASS-on-defaults demo.
+    await expect(page.locator("text=/2026-05-24 @ \\$1\\.76/").first()).toBeVisible();
+    await expect(page.locator("text=/2026-06-01 @ \\$2\\.10/").first()).toBeVisible();
 
     // TradingView-style cathode branding watermark — small clickable badge
     // top-left of every chart. Direct showcase value for the @stratchai/*
@@ -79,8 +83,8 @@ test.describe("Verdict views — visual smokes", () => {
   // BCH is the MFI-triggered variant case + a different chart range than
   // TON. Together with the TON test above we cover both archetypes and
   // both ends of the price range — high-value $-prices (BCH ~$561) and
-  // low-value $-prices (TON ~$2). Label/triangle overlap stress test.
-  test("BCH chart — MFI-triggered + label/triangle separation", async ({ page }) => {
+  // low-value $-prices (TON ~$2).
+  test("BCH chart — MFI-triggered archetype, distinct price range", async ({ page }) => {
     await page.goto("/");
     // BCH isn't a preset chip — the recent BCH PASSes (Jan 2026) had losing
     // forward-look outcomes, so the chips show TON winners + historical ETH.
@@ -102,24 +106,10 @@ test.describe("Verdict views — visual smokes", () => {
       clip: { x: 0, y: cropY, width: 1440, height: 480 },
     });
 
-    // Geometry assertion: the EXIT label sits INSIDE the chart canvas,
-    // smart-flipped above-or-below the triangle. We guard two properties:
-    //   1. label is fully within canvas vertical bounds (no spill into
-    //      neighbor UI above/below the chart)
-    //   2. label is positioned via the smart-flip logic (entryLabelTop /
-    //      exitLabelTop in tradeWindowGeometry), which puts it in the price
-    //      half-pane opposite the triangle
-    const exitLabel = page.locator("text=▼ EXIT").first();
-    await expect(exitLabel).toBeVisible();
-    const labelBox = await exitLabel.boundingBox();
-    const canvas = page.locator("canvas.cathode-candle-canvas").first();
-    const canvasBox = await canvas.boundingBox();
-    if (labelBox && canvasBox) {
-      // top edge ≥ canvas top edge
-      expect(labelBox.y).toBeGreaterThanOrEqual(canvasBox.y - 1);
-      // bottom edge ≤ canvas bottom edge
-      expect(labelBox.y + labelBox.height).toBeLessThanOrEqual(canvasBox.y + canvasBox.height + 1);
-    }
+    // Legend bar carries the entry + exit price citations now that the
+    // in-chart chips are removed. BCH's exit hit the stop-loss — verify
+    // the (SL) suffix is in the legend pill.
+    await expect(page.locator("text=/\\(SL\\)/").first()).toBeVisible();
   });
 
   test("REJECT verdict on bare BTC — rejection-as-feature framing", async ({ page }) => {
