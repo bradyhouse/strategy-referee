@@ -374,14 +374,30 @@ const presets = [
   { label: "ETH · 2025-09-25 (historical)",     token: "ETH", atDate: "2025-09-25" },
 ];
 
+// "CMC top 30 today" is dynamic — loaded from /api/universe on demand. The
+// preset chip's symbols field is populated at click time so the demo always
+// shows the current CMC-curated top-30 by market cap, not a hardcoded list.
+// Direct demo-theater for the "Best CMC Data Use" prize angle.
+const cmcTopUniverse = ref(null);   // string like "BTC, ETH, ..."; cached after first load
+
+async function ensureCmcTopUniverse() {
+  if (cmcTopUniverse.value) return cmcTopUniverse.value;
+  const r = await fetch("/api/universe?limit=30");
+  if (!r.ok) throw new Error(`Universe fetch failed: HTTP ${r.status}`);
+  const j = await r.json();
+  cmcTopUniverse.value = j.data.map(t => t.symbol).join(", ");
+  return cmcTopUniverse.value;
+}
+
 const watchlistPresets = [
+  // CMC top-30 live universe — populated from /api/universe at click time.
+  // Showcases CMC as a primary data source (token curation), not just as
+  // a sanity-check sidekick for our Kraken OHLCV pull.
+  { label: "CMC top 30 today (live universe)", symbols: "__CMC_TOP_30__", atDate: "" },
   // Top 10 majors with blank date → real-time scan. In a downtrending
-  // market this returns mostly/all REJECT, which IS the demo. Judges see
-  // the tool refuse to fabricate signals on live data.
-  { label: "Top 10 today (mostly/all REJECT)", symbols: "BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, LINK, DOT, LTC", atDate: "" },
-  // Historical multi-PASS day for the counter-example. The 2025-09-25
-  // crypto-majors scan was the original demo: 3 of 6 tokens passed
-  // simultaneously, an unusually rich day.
+  // market this returns mostly/all REJECT, which IS the demo.
+  { label: "Top 10 majors today (mostly REJECT)", symbols: "BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, LINK, DOT, LTC", atDate: "" },
+  // Historical multi-PASS day for the counter-example.
   { label: "Crypto majors @ 2025-09-25 (3 PASS — historical)", symbols: "BTC, ETH, SOL, LINK, ADA, DOGE", atDate: "2025-09-25" },
 ];
 
@@ -414,8 +430,22 @@ function loadPreset(p) {
   evaluate();
 }
 
-function loadWatchlistPreset(p) {
-  watchlistInput.value = p.symbols;
+async function loadWatchlistPreset(p) {
+  // CMC-dynamic preset: resolve sentinel by fetching the live top-30 from
+  // /api/universe (cached client-side after first fetch + server-side for 5min).
+  let symbols = p.symbols;
+  if (symbols === "__CMC_TOP_30__") {
+    watchlistError.value = null;
+    watchlistLoading.value = true;
+    try {
+      symbols = await ensureCmcTopUniverse();
+    } catch (e) {
+      watchlistLoading.value = false;
+      watchlistError.value = `Could not fetch CMC top 30 — ${e.message}`;
+      return;
+    }
+  }
+  watchlistInput.value = symbols;
   atDate.value = p.atDate;
   scanWatchlist();
 }
@@ -1020,16 +1050,52 @@ const trendBadgeClass = computed(() => {
     <!-- Single-token result card -->
     <div v-if="mode === 'single' && result" class="max-w-7xl mx-auto px-6 pb-12">
       <div :class="['rounded-xl border bg-white shadow-sm overflow-hidden', cardBorder]">
-        <!-- Verdict header -->
-        <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-4">
+        <!-- Verdict header — CMC token-info enrichment (logo, name, tags,
+             website link) sits between the verdict badge and the symbol so
+             every demo shows the @coinmarketcap data source in-frame. -->
+        <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-4 flex-wrap">
           <span :class="['px-3 py-1 rounded-full text-xs font-bold tracking-wide', verdictClass]">
             {{ result.verdict }}
           </span>
-          <h2 class="text-2xl font-bold text-gray-900">{{ result.symbol }}</h2>
-          <span v-if="result.as_of" class="text-sm text-gray-500">as of {{ result.as_of }}</span>
+          <img v-if="result.cmc_display?.logo"
+               :src="result.cmc_display.logo"
+               :alt="result.cmc_display.name + ' logo'"
+               class="w-9 h-9 rounded-full bg-gray-100 ring-1 ring-gray-200"
+               referrerpolicy="no-referrer" />
+          <div class="flex flex-col">
+            <h2 class="text-2xl font-bold text-gray-900 leading-tight">
+              {{ result.symbol }}
+              <span v-if="result.cmc_display?.name && result.cmc_display.name.toUpperCase() !== result.symbol"
+                    class="text-sm font-normal text-gray-500 ml-1">{{ result.cmc_display.name }}</span>
+            </h2>
+            <span v-if="result.as_of" class="text-xs text-gray-500">as of {{ result.as_of }}</span>
+          </div>
+          <div v-if="result.cmc_display?.tags?.length" class="flex items-center gap-1 flex-wrap">
+            <span v-for="tag in result.cmc_display.tags" :key="tag"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono">
+              {{ tag }}
+            </span>
+          </div>
+          <a v-if="result.cmc_display?.website"
+             :href="result.cmc_display.website" target="_blank" rel="noopener"
+             class="text-xs text-gray-500 hover:text-gray-900 hover:underline">site ↗</a>
           <span v-if="result.code" class="ml-auto text-xs font-mono px-2 py-1 bg-gray-100 text-gray-600 rounded">
             {{ result.code }}
           </span>
+        </div>
+
+        <!-- CMC market intelligence row — live data not in our Kraken pull:
+             current price, 24h price change, 7d price change, 24h volume
+             change, CMC rank. Always-on demo theater for the CoinMarketCap
+             integration: judges see the data source contribute on every
+             verdict view, not just as a footer credit. -->
+        <div v-if="result.signals?.cmc_rank" class="px-6 py-3 border-b border-gray-100 bg-amber-50/40 flex items-center gap-x-6 gap-y-1 flex-wrap text-xs">
+          <span class="font-mono text-amber-900 font-bold">CMC live</span>
+          <span class="text-gray-700">Rank <span class="font-mono font-bold">#{{ result.signals.cmc_rank }}</span></span>
+          <span class="text-gray-700">24h <span class="font-mono font-bold" :class="(result.signals.cmc_pct_change_24h ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'">{{ fmtPct(result.signals.cmc_pct_change_24h) }}</span></span>
+          <span class="text-gray-700">7d <span class="font-mono font-bold" :class="(result.signals.cmc_pct_change_7d ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'">{{ fmtPct(result.signals.cmc_pct_change_7d) }}</span></span>
+          <span class="text-gray-700">Vol Δ24h <span class="font-mono font-bold" :class="(result.signals.cmc_volume_change_24h ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'">{{ fmtPct(result.signals.cmc_volume_change_24h) }}</span></span>
+          <span class="text-gray-700">24h Vol <span class="font-mono font-bold">{{ fmtUsd(result.signals.cmc_volume_24h_usd) }}</span></span>
         </div>
 
         <!-- Signals grid -->

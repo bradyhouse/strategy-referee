@@ -37,6 +37,15 @@ export function tokenInfo(symbols) {
   return cmcGet(`/v1/cryptocurrency/info?symbol=${encodeURIComponent(list)}`);
 }
 
+// CMC's /info endpoint also supports lookup by id, which is the canonical
+// disambiguator when multiple coins share a symbol (e.g. several tokens
+// listed as "TON"; symbol-only lookup can return the wrong one). Prefer
+// this when you already have the id from a prior quotesLatest call.
+export function tokenInfoById(ids) {
+  const list = Array.isArray(ids) ? ids.join(",") : ids;
+  return cmcGet(`/v1/cryptocurrency/info?id=${encodeURIComponent(list)}`);
+}
+
 export function keyInfo() {
   return cmcGet("/v1/key/info");
 }

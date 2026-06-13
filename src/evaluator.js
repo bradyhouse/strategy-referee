@@ -10,7 +10,7 @@ import {
   calcSMASeries,
 } from "@stratchai/indicators";
 import { fetchDailyKlines } from "./ohlcv.js";
-import { quotesLatest } from "./cmc.js";
+import { quotesLatest, tokenInfoById } from "./cmc.js";
 import { buildRsiSurvivorSpec, buildMfiSurvivorSpec } from "./spec_builder.js";
 import { backtestSurvivor, simulateForwardEntry } from "./backtest.js";
 
@@ -37,17 +37,30 @@ function gateRow(id, label, detail, actual, status, library) {
 
 export async function evaluateToken(symbol, opts = {}) {
   const sym = symbol.toUpperCase();
-  let cmcQuote;
+  // Sequential CMC calls: quote first, then info BY ID. CMC's symbol-
+  // lookup is ambiguous when multiple coins share a ticker (e.g. several
+  // 'TON' listings) — passing the id from the quote response guarantees
+  // we get the matching token's metadata. 2 CMC credits per single-token
+  // eval; well within free-tier 10K monthly budget.
+  let cmcQuote, cmcInfo = null;
   try {
     const quotes = await quotesLatest(sym);
     cmcQuote = quotes[sym];
     if (!cmcQuote) {
       return reject(sym, "TOKEN_NOT_FOUND_ON_CMC", `${sym} is not listed on CoinMarketCap.`);
     }
+    if (cmcQuote.id) {
+      try {
+        const infos = await tokenInfoById(cmcQuote.id);
+        cmcInfo = infos[String(cmcQuote.id)] ?? null;
+      } catch {
+        // info fetch is best-effort; verdict proceeds without it
+      }
+    }
   } catch (e) {
     return reject(sym, "CMC_LOOKUP_FAILED", e.message);
   }
-  return evaluateTokenWithQuote(sym, cmcQuote, opts);
+  return evaluateTokenWithQuote(sym, cmcQuote, { ...opts, cmcInfo });
 }
 
 // Same flow as evaluateToken but with a pre-fetched CMC quote object. Used
@@ -55,11 +68,23 @@ export async function evaluateToken(symbol, opts = {}) {
 // fetch, parallel Kraken fetches), avoiding the per-symbol CMC quota burn.
 export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
   const sym = symbol.toUpperCase();
-  const { asOfDateMs = null } = opts;
+  const { asOfDateMs = null, cmcInfo = null } = opts;
 
   if (!cmcQuote) {
     return reject(sym, "TOKEN_NOT_FOUND_ON_CMC", `${sym} is not listed on CoinMarketCap.`);
   }
+
+  // CMC token-info payload reshaped into a compact display block. Best-
+  // effort: if info fetch failed, this is null and the UI hides the
+  // associated card. Tags trimmed to top 3 to keep the result-card
+  // header tidy.
+  const cmcDisplay = cmcInfo ? {
+    name:     cmcInfo.name ?? null,
+    logo:     cmcInfo.logo ?? null,
+    website:  cmcInfo.urls?.website?.[0] ?? null,
+    tags:     Array.isArray(cmcInfo.tags) ? cmcInfo.tags.slice(0, 3) : [],
+    category: cmcInfo.category ?? null,
+  } : null;
 
   // Kraken historical OHLCV — the indicator pipeline. Always fetch the full
   // window; if asOfDateMs is provided, slice client-side into "as-of" (used
@@ -125,16 +150,24 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
   const lastSma   = smaSeries[i];
   const smaDistancePct = lastSma ? ((lastClose - lastSma) / lastSma * 100) : null;
 
+  // CMC-exclusive market intelligence fields. Not used in the verdict math
+  // (which runs on Kraken OHLCV + indicators), but surfaced in the UI for
+  // demo-theater value: 24h price + volume change give a real-time pulse
+  // that Kraken's daily-bar pull doesn't. Live PASS verdicts paired with
+  // negative 24h_change are the canonical "buy-the-dip" visual.
   const signals = {
-    close:               r2(lastClose),
-    rsi:                 r2(lastRsi),
-    mfi:                 r2(lastMfi),
-    sma200:              r2(lastSma),
-    sma_distance_pct:    r2(smaDistancePct),
-    cmc_rank:            cmcQuote.cmc_rank,
-    cmc_volume_24h_usd:  r2(cmcQuote.quote?.USD?.volume_24h),
-    bars_used:           closes.length,
-    last_bar_close_time: new Date(klines[i].closeTime).toISOString(),
+    close:                   r2(lastClose),
+    rsi:                     r2(lastRsi),
+    mfi:                     r2(lastMfi),
+    sma200:                  r2(lastSma),
+    sma_distance_pct:        r2(smaDistancePct),
+    cmc_rank:                cmcQuote.cmc_rank,
+    cmc_volume_24h_usd:      r2(cmcQuote.quote?.USD?.volume_24h),
+    cmc_pct_change_24h:      r2(cmcQuote.quote?.USD?.percent_change_24h),
+    cmc_pct_change_7d:       r2(cmcQuote.quote?.USD?.percent_change_7d),
+    cmc_volume_change_24h:   r2(cmcQuote.quote?.USD?.volume_change_24h),
+    bars_used:               closes.length,
+    last_bar_close_time:     new Date(klines[i].closeTime).toISOString(),
   };
 
   // Chart payload for the web UI. Includes a recent window of candles +
@@ -183,6 +216,7 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
       signals,
       {
         chart,
+        cmc_display: cmcDisplay,
         gate: [
           ...gateBase,
           gateRow("uptrend",  "Long-horizon uptrend",     "close > SMA(200)",
@@ -275,6 +309,7 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
         backtest,
         forward_look: forwardLook,
         chart,
+        cmc_display: cmcDisplay,
       };
     }
 
@@ -300,6 +335,7 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
       backtest,
       forward_look: forwardLook,
       chart,
+      cmc_display: cmcDisplay,
     };
   }
 
@@ -327,6 +363,7 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
           "—", "skip", "@stratchai/indicators"),
       ],
       chart,
+      cmc_display: cmcDisplay,
     };
   }
 
@@ -335,6 +372,7 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
     signals,
     {
       chart,
+      cmc_display: cmcDisplay,
       gate: [
         ...gateBase,
         gateUptrendRow,

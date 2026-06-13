@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 const evaluateHandler  = (await import("./api/evaluate.js")).default;
 const watchlistHandler = (await import("./api/watchlist.js")).default;
 const healthHandler    = (await import("./api/health.js")).default;
+const universeHandler  = (await import("./api/universe.js")).default;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -26,6 +27,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/api/health",      healthHandler);
+app.get("/api/universe",    universeHandler);
 app.post("/api/evaluate",   evaluateHandler);
 app.post("/api/watchlist",  watchlistHandler);
 

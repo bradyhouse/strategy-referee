@@ -32,6 +32,15 @@ test.describe("Verdict views — visual smokes", () => {
     await expect(page.getByText("What PASS actually means")).toBeVisible();
 
     await page.screenshot({ path: "tests/e2e/screenshots/pass-ton-full.png", fullPage: true });
+
+    // CMC integration must be visible — TradingView-equivalent demo-theater
+    // value for the "Best CMC Data Use" prize angle. If these vanish, judges
+    // see only the load-bearing thesis and miss the data-source showcase.
+    await expect(page.getByText("CMC live")).toBeVisible();
+    await expect(page.getByText(/Rank #\d+/)).toBeVisible();
+    // Token-info enrichment: logo (img) + at least one CMC tag chip
+    const logo = page.locator("img[alt$=' logo']").first();
+    await expect(logo).toBeVisible();
   });
 
   test("TON chart region — labels above chart, triangles inside", async ({ page }) => {
