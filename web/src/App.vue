@@ -2,6 +2,15 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { CathodeCandle } from "@stratchai/cathode";
 import "@stratchai/cathode/style";
+// Static bundle of the audit-universe screening run. 46 shelved daily-crypto
+// archetypes × CMC top-30, 1.5% real round-trip fees, walk-forward on
+// 720-bar Kraken history. Sources the "Audit transparency" UI block —
+// gives users empirical per-token evidence behind the audit's cull
+// verdicts, plus surfaces any rescue candidates (currently
+// mass_index_reversal_daily at +0.51% mean). Regenerate with:
+//   node /Users/bradyhouse/git/sigma-swing-agent/scripts/screen_audit_universe.js
+//   cp data/audit_universe_screening_YYYY-MM-DD.json strategy-referee/data/audit_universe_screening.json
+import auditScreening from "../../data/audit_universe_screening.json";
 
 // ── Chart visual prefs (right-click menu + Cmd+Shift+= curvature) ──────────
 // Mirrors bradyhouse/dashboard src/components/ChartPanel.vue:188-221.
@@ -582,6 +591,48 @@ function copyCliCommand() {
   const cmd = `node src/index.js --token ${sym}${dateFlag}`;
   navigator.clipboard?.writeText(cmd);
 }
+
+// Audit-transparency state — collapsed by default so the screening data
+// doesn't overwhelm first-time visitors. Click to expand the per-archetype
+// table for the currently-evaluated token.
+const auditExpanded = ref(false);
+
+// Map (archetype name → audit row for the requested symbol). Reactive on
+// result so flipping tokens auto-refreshes the visible audit slice.
+const tokenAuditRows = computed(() => {
+  const sym = result.value?.symbol;
+  if (!sym) return [];
+  const rows = [];
+  for (const r of auditScreening.results) {
+    const perToken = r.per_token.find(p => p.symbol === sym);
+    if (!perToken) continue;
+    const rescue = (r.total?.mean_net_pct ?? 0) > 0 && (r.total?.n ?? 0) >= 10;
+    rows.push({
+      strategy: r.strategy,
+      culled_at: r.culled_at,
+      audit_n: r.total?.n ?? 0,
+      audit_mean_net_pct: r.total?.mean_net_pct ?? null,
+      audit_win_rate: r.total?.win_rate ?? null,
+      token_n: perToken.n,
+      token_mean_net_pct: perToken.mean_net_pct,
+      token_win_rate: perToken.win_rate,
+      token_exit_reasons: perToken.exit_reasons,
+      rescue_candidate: rescue,
+    });
+  }
+  // Sort by token-level mean P&L descending so any rescue candidates +
+  // best-on-this-token rows surface at the top of the expanded table.
+  rows.sort((a, b) => (b.token_mean_net_pct ?? -Infinity) - (a.token_mean_net_pct ?? -Infinity));
+  return rows;
+});
+
+const auditMeta = computed(() => ({
+  scanned_at:     auditScreening.scanned_at?.slice(0, 10),
+  universe_size:  auditScreening.universe?.length ?? 0,
+  n_archetypes:   auditScreening.n_strategies_screened ?? 0,
+  n_rescue:       auditScreening.n_rescue_candidates ?? 0,
+  fee:            auditScreening.fee_round_trip_pct ?? 1.5,
+}));
 
 // Formatters
 function fmtUsd(n) {
@@ -1472,6 +1523,80 @@ const trendBadgeClass = computed(() => {
         <div v-else-if="result.forward_look?.status === 'OPEN_AT_EOF'" class="px-6 py-5 border-b border-gray-100">
           <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
             <strong>Forward-look:</strong> {{ result.forward_look.note }}
+          </div>
+        </div>
+
+        <!-- Audit transparency: 46 shelved daily-crypto archetypes evaluated
+             on the current symbol. Collapsed by default to avoid swamping
+             first-time visitors; click the header bar to expand. Sources
+             from the bundled audit_universe_screening.json (regenerate with
+             scripts/screen_audit_universe.js on sigma side). -->
+        <div v-if="tokenAuditRows.length" class="px-6 py-5 border-b border-gray-100">
+          <button
+            @click="auditExpanded = !auditExpanded"
+            class="w-full flex items-center justify-between px-4 py-3 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 transition text-left"
+          >
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Audit transparency</span>
+              <span class="text-sm text-slate-700">
+                <strong>{{ auditMeta.n_archetypes }}</strong> shelved daily-crypto archetypes evaluated on {{ result.symbol }}
+              </span>
+              <span v-if="auditMeta.n_rescue > 0"
+                    class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                ⚡ {{ auditMeta.n_rescue }} rescue candidate{{ auditMeta.n_rescue === 1 ? "" : "s" }}
+              </span>
+            </div>
+            <span class="text-slate-500 text-sm">{{ auditExpanded ? "▲ hide" : "▼ show table" }}</span>
+          </button>
+
+          <div v-if="auditExpanded" class="mt-3">
+            <p class="text-xs text-gray-500 mb-3 leading-relaxed">
+              Walk-forward screen of 46 shelved daily-crypto strategies against the CMC top-30 universe ({{ auditMeta.universe_size }} unique symbols after stablecoin dedupe), at {{ auditMeta.fee }}% real round-trip fees, on Kraken 720-bar history (scanned {{ auditMeta.scanned_at }}). Sorted by this-token's mean net P&L after fees. <strong>Rescue candidate</strong> = pooled-universe mean &gt; 0 AND n ≥ 10 — surfaces archetypes where the audit's universe-specific cull verdict might not hold on CMC's curated top-30.
+            </p>
+            <div class="overflow-x-auto rounded-lg border border-gray-200">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-[10px] uppercase tracking-wide text-gray-600 font-bold">
+                  <tr>
+                    <th class="text-left px-3 py-2">Archetype</th>
+                    <th class="text-right px-3 py-2 tabular-nums" title="Trades fired on this token over the screening window">on {{ result.symbol }} n</th>
+                    <th class="text-right px-3 py-2 tabular-nums">on {{ result.symbol }} mean</th>
+                    <th class="text-right px-3 py-2 tabular-nums">on {{ result.symbol }} win%</th>
+                    <th class="text-right px-3 py-2 tabular-nums" title="Across the CMC top-30 universe">pooled n</th>
+                    <th class="text-right px-3 py-2 tabular-nums">pooled mean</th>
+                    <th class="text-left px-3 py-2">Culled</th>
+                    <th class="text-center px-3 py-2 w-20">Status</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  <tr v-for="row in tokenAuditRows" :key="row.strategy"
+                      :class="row.rescue_candidate ? 'bg-amber-50/40' : 'hover:bg-gray-50'">
+                    <td class="px-3 py-2 font-mono text-gray-900">{{ row.strategy }}</td>
+                    <td class="px-3 py-2 text-right font-mono tabular-nums text-gray-700">{{ row.token_n }}</td>
+                    <td class="px-3 py-2 text-right font-mono tabular-nums"
+                        :class="(row.token_mean_net_pct ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'">
+                      {{ row.token_n ? fmtPct(row.token_mean_net_pct) : "—" }}
+                    </td>
+                    <td class="px-3 py-2 text-right font-mono tabular-nums text-gray-700">
+                      {{ row.token_n ? (row.token_win_rate * 100).toFixed(0) + "%" : "—" }}
+                    </td>
+                    <td class="px-3 py-2 text-right font-mono tabular-nums text-gray-500">{{ row.audit_n }}</td>
+                    <td class="px-3 py-2 text-right font-mono tabular-nums"
+                        :class="(row.audit_mean_net_pct ?? 0) >= 0 ? 'text-emerald-600' : 'text-gray-500'">
+                      {{ fmtPct(row.audit_mean_net_pct) }}
+                    </td>
+                    <td class="px-3 py-2 text-gray-500 font-mono text-[10px]">{{ row.culled_at || "—" }}</td>
+                    <td class="px-3 py-2 text-center">
+                      <span v-if="row.rescue_candidate"
+                            class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">⚡ RESCUE</span>
+                      <span v-else class="text-[10px] text-rose-700">shelved</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="mt-3 text-xs text-gray-500 italic">
+              Sources: <a href="https://www.npmjs.com/package/@stratchai/strategy-spec" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/strategy-spec</a> for archetype params + <a href="https://www.npmjs.com/package/@stratchai/backtest" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/backtest</a> engine + <a href="https://www.npmjs.com/package/@stratchai/indicators" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/indicators</a> for signal computation. Empirical receipts behind every cull verdict — judges can verify the audit was rigorous, not asserted.
+            </p>
           </div>
         </div>
 

@@ -248,6 +248,32 @@ test.describe("Verdict views — visual smokes", () => {
     await page.screenshot({ path: "tests/e2e/screenshots/pin-lens-after-wheel.png", fullPage: true });
   });
 
+  test("Audit transparency panel — collapsed by default, expandable, rescue candidate visible", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
+    await page.waitForTimeout(2500);
+
+    // Header should be visible with the rescue candidate counter
+    const header = page.getByRole("button", { name: /Audit transparency/ });
+    await expect(header).toBeVisible();
+    await expect(header).toContainText(/shelved daily-crypto archetypes/);
+    await expect(header).toContainText(/rescue candidate/);
+
+    // Table should be hidden until clicked
+    const tableRow = page.locator("text=mass_index_reversal_daily").first();
+    await expect(tableRow).not.toBeVisible();
+
+    // Click to expand
+    await header.click();
+    await page.waitForTimeout(200);
+
+    // Table should now show the rescue candidate row with the ⚡ RESCUE badge
+    await expect(tableRow).toBeVisible();
+    await expect(page.getByText("⚡ RESCUE").first()).toBeVisible();
+
+    await page.screenshot({ path: "tests/e2e/screenshots/audit-transparency-expanded.png", fullPage: true });
+  });
+
   test("Pin-lens survives toolbar hover", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();
