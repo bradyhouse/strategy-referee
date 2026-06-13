@@ -714,6 +714,107 @@ const auditColumns = computed(() => {
   ];
 });
 
+// Watchlist results grid — same CathodeGrid + paper-theme pattern as the
+// audit-transparency grid. Verdict pill + spec-emitted YES badge use
+// cellRenderer (HTML string via v-html) since they're visual badges, not
+// plain values. Row-click drills into the single-token view (replacing
+// the previous explicit "Drill in →" action button — one less column,
+// one less click, plus a more standard "click anywhere on the row" UX).
+const watchlistColumns = computed(() => [
+  {
+    field: "verdict",
+    headerName: "Verdict",
+    width: 100,
+    sortable: true,
+    cellRenderer: (p) => {
+      const v = p.value || "—";
+      const bg = v === "PASS" ? "#10b981" : v === "WATCH" ? "#f59e0b" : v === "REJECT" ? "#f43f5e" : "#9ca3af";
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:9999px;background:${bg};color:white;font-size:10px;font-weight:700;letter-spacing:0.025em">${v}</span>`;
+    },
+  },
+  {
+    field: "symbol",
+    headerName: "Symbol",
+    width: 90,
+    sortable: true,
+    cellStyle: { fontFamily: "ui-monospace, monospace", fontWeight: 700 },
+  },
+  {
+    field: "signals.sma_distance_pct",
+    headerName: "Δ to SMA200",
+    width: 110,
+    sortable: true,
+    valueGetter: (p) => p.data?.signals?.sma_distance_pct ?? null,
+    valueFormatter: (p) => p.value == null ? "—" : fmtPct(p.value),
+    cellStyle: (p) => {
+      if (p.value == null) return { textAlign: "right" };
+      const color = p.value >= 5 ? "#15803d" : p.value >= 0 ? "#b45309" : "#be123c";
+      return { textAlign: "right", color, fontFamily: "ui-monospace, monospace" };
+    },
+  },
+  {
+    field: "signals.rsi",
+    headerName: "RSI(14)",
+    width: 80,
+    sortable: true,
+    valueGetter: (p) => p.data?.signals?.rsi ?? null,
+    valueFormatter: (p) => p.value == null ? "—" : fmtNum(p.value),
+    cellStyle: (p) => ({
+      textAlign: "right",
+      color: (p.value ?? 999) < 32 ? "#15803d" : undefined,
+      fontFamily: "ui-monospace, monospace",
+      fontWeight: (p.value ?? 999) < 32 ? 700 : 400,
+    }),
+  },
+  {
+    field: "signals.mfi",
+    headerName: "MFI(14)",
+    width: 80,
+    sortable: true,
+    valueGetter: (p) => p.data?.signals?.mfi ?? null,
+    valueFormatter: (p) => p.value == null ? "—" : fmtNum(p.value),
+    cellStyle: (p) => ({
+      textAlign: "right",
+      color: (p.value ?? 999) < 20 ? "#15803d" : undefined,
+      fontFamily: "ui-monospace, monospace",
+      fontWeight: (p.value ?? 999) < 20 ? 700 : 400,
+    }),
+  },
+  {
+    field: "spec",
+    headerName: "Spec",
+    width: 80,
+    sortable: false,
+    cellRenderer: (p) => {
+      if (!p.value) return "—";
+      const verdict = p.data?.verdict;
+      const bg = verdict === "PASS" ? "#ecfdf5" : "#fffbeb";
+      const fg = verdict === "PASS" ? "#065f46" : "#92400e";
+      const bd = verdict === "PASS" ? "#6ee7b7" : "#fcd34d";
+      return `<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:${bg};color:${fg};border:1px solid ${bd};font-size:10px;font-weight:700">YES</span>`;
+    },
+  },
+  {
+    field: "detail",
+    headerName: "Detail",
+    flex: 1,
+    sortable: false,
+    valueGetter: (p) => {
+      const r = p.data;
+      if (r?.code) return r.code;
+      if (r?.verdict === "PASS") return "survivor-family match";
+      if (r?.verdict === "WATCH" && r.spec) return "oversold-confirmed, elevated risk";
+      if (r?.verdict === "WATCH") return "near-trigger";
+      return "";
+    },
+    cellStyle: { fontSize: "11px", color: "#6b7280" },
+  },
+]);
+
+function onWatchlistRowClick(e) {
+  if (e?.data) drillIn(e.data);
+}
+
 // Per-row inline style — highlight rescue candidates with a subtle amber tint.
 // Slightly stronger alpha than the dark-theme variant because paper background
 // needs more contrast to show through; still subtle enough that the row reads
@@ -1168,86 +1269,26 @@ const trendBadgeClass = computed(() => {
         </span>
       </div>
 
-      <div class="rounded-xl border border-gray-200 bg-white overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-600 font-bold">
-            <tr>
-              <th class="text-left px-4 py-3 w-24">Verdict</th>
-              <th class="text-left px-4 py-3 w-24">Symbol</th>
-              <th class="text-right px-4 py-3 tabular-nums">Δ TO SMA200</th>
-              <th class="text-right px-4 py-3 tabular-nums">RSI(14)</th>
-              <th class="text-right px-4 py-3 tabular-nums">MFI(14)</th>
-              <th class="text-center px-4 py-3 w-20">Spec</th>
-              <th class="text-left px-4 py-3">Detail</th>
-              <th class="text-right px-4 py-3 w-28">Action</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr v-for="r in watchlistResults" :key="r.symbol" class="hover:bg-gray-50">
-              <td class="px-4 py-3">
-                <span
-                  :class="['px-2 py-0.5 rounded-full text-xs font-bold', {
-                    'bg-emerald-500 text-white': r.verdict === 'PASS',
-                    'bg-amber-500 text-white': r.verdict === 'WATCH',
-                    'bg-rose-500 text-white': r.verdict === 'REJECT',
-                  }]"
-                >
-                  {{ r.verdict }}
-                </span>
-              </td>
-              <td class="px-4 py-3 font-mono font-bold">{{ r.symbol }}</td>
-              <td
-                class="px-4 py-3 font-mono text-right tabular-nums"
-                :class="{
-                  'text-emerald-600': r.signals?.sma_distance_pct >= 5,
-                  'text-amber-600': r.signals?.sma_distance_pct != null && r.signals.sma_distance_pct >= 0 && r.signals.sma_distance_pct < 5,
-                  'text-rose-600': r.signals?.sma_distance_pct < 0,
-                }"
-              >
-                {{ r.signals ? fmtPct(r.signals.sma_distance_pct) : "—" }}
-              </td>
-              <td
-                class="px-4 py-3 font-mono text-right tabular-nums"
-                :class="r.signals?.rsi < 32 ? 'text-emerald-600' : 'text-gray-900'"
-              >
-                {{ r.signals ? fmtNum(r.signals.rsi) : "—" }}
-              </td>
-              <td
-                class="px-4 py-3 font-mono text-right tabular-nums"
-                :class="r.signals?.mfi < 20 ? 'text-emerald-600' : 'text-gray-900'"
-              >
-                {{ r.signals ? fmtNum(r.signals.mfi) : "—" }}
-              </td>
-              <td class="px-4 py-3 text-center">
-                <span
-                  v-if="r.spec"
-                  :class="['inline-block px-2 py-0.5 rounded text-xs font-bold border', {
-                    'bg-emerald-50 text-emerald-800 border-emerald-300': r.verdict === 'PASS',
-                    'bg-amber-50 text-amber-800 border-amber-300': r.verdict === 'WATCH',
-                  }]"
-                >
-                  YES
-                </span>
-                <span v-else class="text-gray-400">—</span>
-              </td>
-              <td class="px-4 py-3 text-gray-600">
-                <span v-if="r.code" class="font-mono text-xs">{{ r.code }}</span>
-                <span v-else-if="r.verdict === 'PASS'">survivor-family match</span>
-                <span v-else-if="r.verdict === 'WATCH' && r.spec">oversold-confirmed, elevated risk</span>
-                <span v-else-if="r.verdict === 'WATCH'">near-trigger</span>
-              </td>
-              <td class="px-4 py-3 text-right">
-                <button
-                  @click="drillIn(r)"
-                  class="text-xs text-gray-700 underline hover:text-gray-900"
-                >
-                  Drill in →
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <!-- Watchlist results grid — CathodeGrid (paper theme, same visual
+           register as the audit-transparency grid). Click any row to drill
+           into the single-token evaluation for that symbol (replaces the
+           old explicit "Drill in →" column). Sortable columns via the
+           header click. -->
+      <div class="h-[600px] rounded-xl border border-gray-200 overflow-hidden cursor-pointer">
+        <CathodeGrid
+          :column-defs="watchlistColumns"
+          :row-data="watchlistResults"
+          theme="paper"
+          :row-height="34"
+          :curvature="4"
+          :scanlines="false"
+          :glow="false"
+          @row-clicked="onWatchlistRowClick"
+        />
       </div>
+      <p class="mt-2 text-xs text-gray-500 italic">
+        Click any row to drill into the single-token evaluation. Sortable by clicking column headers.
+      </p>
     </div>
 
     <!-- Single-token result card -->

@@ -178,8 +178,16 @@ test.describe("Verdict views — visual smokes", () => {
     await page.getByRole("button", { name: /^Scan$/ }).click();
     await page.waitForTimeout(8000);  // 6 tokens × ~1s each
 
-    const passCount = await page.locator('span:has-text("PASS")').count();
-    expect(passCount).toBeGreaterThanOrEqual(3);   // PASS badge appears in the table + at least one in the tally
+    // CathodeGrid renders cell badges outside the regular DOM text (cells
+    // are rendered via internal component instances, not text nodes
+    // Playwright can query). The verdict tally pill above the grid IS in
+    // regular DOM though and reads from the same source data — assert
+    // that to verify the scan produced 3 PASS results.
+    const tallyPass = page.locator(".bg-emerald-100").filter({ hasText: "PASS" });
+    await expect(tallyPass).toBeVisible();
+    await expect(tallyPass).toContainText("3");
+
+    await page.screenshot({ path: "tests/e2e/screenshots/watchlist-grid.png", fullPage: true });
   });
 
   test("P key pin/unpins the lens — no cursor migration to the toolbar", async ({ page }) => {
