@@ -875,6 +875,15 @@ function libraryHref(name) {
 const CC_LEFT_PAD_PX    = 8;
 const CC_RIGHT_AXIS_PX  = 56;
 const CC_SLOT_W_PX      = 6;
+// Vertical layout — mirrors cathode's hl() in dist/cathode.js:
+//   priceY0 = pt (8) at the top
+//   priceY1 = pt + (usableH - volumeH) at the bottom of the candle area
+// Constants confirmed from the dist: pt=8, Xt=22 (x-axis label area),
+// Dt=4 (gap between price + volume areas), rl=0.18 (volumeFraction default).
+const CC_TOP_PAD_PX     = 8;
+const CC_X_AXIS_H_PX    = 22;
+const CC_AREA_GAP_PX    = 4;
+const CC_VOL_FRACTION   = 0.18;
 
 const chartContainerSize = ref({ w: 0, h: 0 });
 let _chartResizeObserver = null;
@@ -943,20 +952,60 @@ const tradeWindowGeometry = computed(() => {
   const bandLeft  = entryX - CC_SLOT_W_PX / 2;
   const bandRight = exitX  + CC_SLOT_W_PX / 2;
 
-  // Labels live in the padding area ABOVE the chart canvas (pt-12 wrapper
-  // gives ~48px of room). They can never collide with the triangles drawn
-  // inside the chart because they're outside it. The only collision left
-  // is two labels meeting horizontally — handled by vertical staggering
-  // within the padding area.
+  // Triangle Y positions — match cathode's Ye(price, range, priceY0, priceY1):
+  //   y = priceY0 + (1 - (price - min)/(max - min)) * (priceY1 - priceY0)
+  // Computed against the visible candles' high/low range. The SMA200 overlay
+  // values are excluded — they often extend beyond the candle range and would
+  // push the triangles off-screen.
+  const visible = candles.slice(firstIdx, firstIdx + count);
+  let priceMin = Infinity, priceMax = -Infinity;
+  for (const c of visible) {
+    if (c.low  < priceMin) priceMin = c.low;
+    if (c.high > priceMax) priceMax = c.high;
+  }
+  const usableH = Math.max(1, h - CC_TOP_PAD_PX - CC_X_AXIS_H_PX - CC_AREA_GAP_PX);
+  const volH    = Math.round(usableH * CC_VOL_FRACTION);
+  const priceY0 = CC_TOP_PAD_PX;
+  const priceY1 = CC_TOP_PAD_PX + (usableH - volH);
+  const priceToY = (price) => {
+    if (priceMax <= priceMin) return (priceY0 + priceY1) / 2;
+    return priceY0 + (1 - (price - priceMin) / (priceMax - priceMin)) * (priceY1 - priceY0);
+  };
+  const entryY = priceToY(r.forward_look.entry_price);
+  const exitY  = priceToY(r.forward_look.exit_price);
+
+  // Smart label placement: position the label on the OPPOSITE vertical side
+  // from the triangle so it doesn't sit on top of the marker. Triangle high
+  // in the chart → label near bottom; triangle low → label near top. The
+  // label height is ~22px including padding; place it with ~6px clearance
+  // from the triangle's price level.
+  const LABEL_H = 22;
+  const CLEARANCE = 6;
+  const chartMid = (priceY0 + priceY1) / 2;
+  const placeLabel = (triY) => triY < chartMid
+    ? Math.min(priceY1 - LABEL_H - CLEARANCE, triY + 28)   // triangle in TOP half → label BELOW it
+    : Math.max(priceY0 + CLEARANCE, triY - LABEL_H - 28);   // triangle in BOTTOM half → label ABOVE it
+  let entryLabelTop = placeLabel(entryY);
+  let exitLabelTop  = placeLabel(exitY);
+
+  // Horizontal-collision stagger: if entry/exit are close together AND
+  // both labels ended up at the same vertical side, push the exit label
+  // by another label-height in the same direction so they don't overlap.
   const LABEL_W = 130;
   const collides = Math.abs(exitX - entryX) < LABEL_W;
-  const entryLabelTop = 0;
-  const exitLabelTop  = collides ? 24 : 0;
+  if (collides && Math.abs(entryLabelTop - exitLabelTop) < LABEL_H + 4) {
+    // Same side — offset exit by ~26px in the direction away from its triangle
+    const exitSide = exitLabelTop > exitY ? 1 : -1;
+    exitLabelTop  = exitLabelTop + exitSide * (LABEL_H + 4);
+    exitLabelTop  = Math.max(priceY0 + CLEARANCE, Math.min(priceY1 - LABEL_H - CLEARANCE, exitLabelTop));
+  }
 
   return {
     entryX, exitX,
+    entryY, exitY,
     bandLeft, bandWidth: Math.max(2, bandRight - bandLeft),
     plotLeft: CC_LEFT_PAD_PX, plotRight: w - CC_RIGHT_AXIS_PX,
+    priceY0, priceY1,
     containerW: w, containerH: h,
     entryLabelTop, exitLabelTop, collides,
   };
@@ -1471,31 +1520,7 @@ const trendBadgeClass = computed(() => {
                canvas for the price labels. With labels lifted out of the
                chart container, they can never overlap a cathode triangle
                regardless of where the trade prices fall in the visible range. -->
-          <div class="relative pt-12">
-            <!-- ENTRY price label, ABOVE the chart canvas. Stagger when the
-                 exit triangle is too close horizontally so the two labels
-                 don't collide with each other. -->
-            <div
-              v-if="tradeWindowGeometry && result.forward_look"
-              class="pointer-events-none absolute z-30 -translate-x-1/2"
-              :style="{ left: tradeWindowGeometry.entryX + 'px', top: tradeWindowGeometry.entryLabelTop + 'px' }"
-            >
-              <div class="bg-emerald-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
-                ▲ ENTRY {{ fmtUsd(result.forward_look.entry_price) }}
-              </div>
-            </div>
-
-            <!-- EXIT price label, same shape, rose color. -->
-            <div
-              v-if="tradeWindowGeometry && result.forward_look"
-              class="pointer-events-none absolute z-30 -translate-x-1/2"
-              :style="{ left: tradeWindowGeometry.exitX + 'px', top: tradeWindowGeometry.exitLabelTop + 'px' }"
-            >
-              <div class="bg-rose-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
-                ▼ EXIT {{ fmtUsd(result.forward_look.exit_price) }}
-              </div>
-            </div>
-
+          <div class="relative">
             <div
               ref="chartContainerRef"
               :class="['relative h-80 rounded-lg overflow-hidden border', chartContainerBg]"
@@ -1573,9 +1598,10 @@ const trendBadgeClass = computed(() => {
               ></div>
 
               <!-- Drop-lines: vertical dotted lines through the chart at the
-                   entry + exit column. Visually connect the labels above the
-                   chart to the cathode triangles inside. Drawn INSIDE the
-                   chart container so they appear on top of the canvas. -->
+                   entry + exit column. With labels now positioned INSIDE the
+                   chart near each triangle (smart top/bottom flipped to avoid
+                   overlapping the marker), the drop-lines connect the label
+                   chip to its triangle for a clear visual link. -->
               <div
                 v-if="tradeWindowGeometry"
                 class="pointer-events-none absolute top-0 bottom-0 w-px border-l border-dashed border-emerald-500/70 z-10"
@@ -1586,6 +1612,32 @@ const trendBadgeClass = computed(() => {
                 class="pointer-events-none absolute top-0 bottom-0 w-px border-l border-dashed border-rose-500/70 z-10"
                 :style="{ left: tradeWindowGeometry.exitX + 'px' }"
               ></div>
+
+              <!-- ENTRY price label, INSIDE the chart canvas at a smart Y
+                   position relative to the entry triangle. Triangle high in
+                   the chart → label below it; triangle low → label above.
+                   Pointer-events: none so cathode's hover-magnify still
+                   works through the label. z-20 above the drop-line. -->
+              <div
+                v-if="tradeWindowGeometry && result.forward_look"
+                class="pointer-events-none absolute z-20 -translate-x-1/2"
+                :style="{ left: tradeWindowGeometry.entryX + 'px', top: tradeWindowGeometry.entryLabelTop + 'px' }"
+              >
+                <div class="bg-emerald-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap ring-1 ring-emerald-700/30">
+                  ▲ ENTRY {{ fmtUsd(result.forward_look.entry_price) }}
+                </div>
+              </div>
+
+              <!-- EXIT price label, same shape, rose color. -->
+              <div
+                v-if="tradeWindowGeometry && result.forward_look"
+                class="pointer-events-none absolute z-20 -translate-x-1/2"
+                :style="{ left: tradeWindowGeometry.exitX + 'px', top: tradeWindowGeometry.exitLabelTop + 'px' }"
+              >
+                <div class="bg-rose-500 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap ring-1 ring-rose-700/30">
+                  ▼ EXIT {{ fmtUsd(result.forward_look.exit_price) }}
+                </div>
+              </div>
             </div>
           </div>
           <p class="mt-2 text-xs text-gray-500 italic">
