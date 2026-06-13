@@ -677,7 +677,7 @@ const auditColumns = computed(() => {
       width: 110,
       cellStyle: p => ({
         textAlign: "right",
-        color: p.value == null ? undefined : p.value >= 0 ? "#34d399" : "#fb7185",
+        color: p.value == null ? undefined : p.value >= 0 ? "#15803d" : "#be123c",
       }),
       valueFormatter: p => p.value == null ? "—" : fmtPct(p.value),
     },
@@ -695,7 +695,7 @@ const auditColumns = computed(() => {
       width: 110,
       cellStyle: p => ({
         textAlign: "right",
-        color: p.value == null ? undefined : p.value >= 0 ? "#34d399" : "#fb7185",
+        color: p.value == null ? undefined : p.value >= 0 ? "#15803d" : "#be123c",
       }),
       valueFormatter: p => p.value == null ? "—" : fmtPct(p.value),
     },
@@ -707,7 +707,7 @@ const auditColumns = computed(() => {
       cellStyle: p => ({
         textAlign: "center",
         fontWeight: p.value ? 700 : 400,
-        color: p.value ? "#fbbf24" : undefined,
+        color: p.value ? "#b45309" : undefined,
       }),
       valueFormatter: p => p.value ? "⚡ RESCUE" : "shelved",
     },
@@ -715,9 +715,12 @@ const auditColumns = computed(() => {
 });
 
 // Per-row inline style — highlight rescue candidates with a subtle amber tint.
+// Slightly stronger alpha than the dark-theme variant because paper background
+// needs more contrast to show through; still subtle enough that the row reads
+// as data, not a callout box.
 function auditRowStyle(p) {
   if (p.data?.rescue_candidate) {
-    return { background: "rgba(251, 191, 36, 0.08)" };  // matches the amber RESCUE badge
+    return { background: "rgba(251, 191, 36, 0.18)" };  // matches the ⚡ RESCUE badge palette
   }
   return undefined;
 }
@@ -1689,22 +1692,26 @@ const trendBadgeClass = computed(() => {
               Walk-forward screen of 46 shelved daily-crypto strategies against the CMC top-30 universe ({{ auditMeta.universe_size }} unique symbols after stablecoin dedupe), at {{ auditMeta.fee }}% real round-trip fees, on Kraken 720-bar history (scanned {{ auditMeta.scanned_at }}). Sorted by this-token's mean net P&L after fees. <strong>Rescue candidate</strong> = pooled-universe mean &gt; 0 AND n ≥ 10 — surfaces archetypes where the audit's universe-specific cull verdict might not hold on CMC's curated top-30.
             </p>
             <!-- CathodeGrid — second showcase of the cathode library after
-                 CathodeCandle. The data was already worth showing as a table;
-                 wrapping it in cathode's CRT-styled grid means more demo
-                 theater for the @stratchai/cathode prize angle. Theme is
-                 bound to chartTheme so toggling the chart's phosphor/amber/
-                 paper theme via the Display menu updates this grid too —
-                 visual consistency across the page. -->
+                 CathodeCandle. Hardcoded to "paper" theme (rather than
+                 binding to chartTheme) because tabular data is more
+                 legible on a light background — lots of small numeric +
+                 strategy-name text. The chart stays phosphor (CRT-styled
+                 candle visualization is the right register for that); the
+                 grid stays paper (dense data is the right register for
+                 this). Subtle 6° curvature still applies — barely
+                 perceptible but signals it's cathode-rendered. scanlines
+                 and glow disabled because both are CRT-screen effects
+                 that don't fit a paper aesthetic. -->
             <div class="h-[500px] rounded-lg overflow-hidden border border-gray-200">
               <CathodeGrid
                 :column-defs="auditColumns"
                 :row-data="tokenAuditRows"
                 :get-row-style="auditRowStyle"
-                :theme="chartTheme"
+                theme="paper"
                 :row-height="28"
                 :curvature="6"
-                :scanlines="scanlines"
-                :glow="glow"
+                :scanlines="false"
+                :glow="false"
               />
             </div>
             <p class="mt-3 text-xs text-gray-500 italic">
