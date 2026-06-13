@@ -974,31 +974,32 @@ const tradeWindowGeometry = computed(() => {
   const entryY = priceToY(r.forward_look.entry_price);
   const exitY  = priceToY(r.forward_look.exit_price);
 
-  // Smart label placement: position the label on the OPPOSITE vertical side
-  // from the triangle so it doesn't sit on top of the marker. Triangle high
-  // in the chart → label near bottom; triangle low → label near top. The
-  // label height is ~22px including padding; place it with ~6px clearance
-  // from the triangle's price level.
+  // Label placement: chip hugs its triangle with a ~6px gap. Default ABOVE
+  // the triangle; flip BELOW only when ABOVE would clip the chart top edge.
+  // The cross-mid-pane "go to opposite half" rule was wrong — it pulled
+  // both labels to the middle of the chart, away from their triangles.
   const LABEL_H = 22;
-  const CLEARANCE = 6;
-  const chartMid = (priceY0 + priceY1) / 2;
-  const placeLabel = (triY) => triY < chartMid
-    ? Math.min(priceY1 - LABEL_H - CLEARANCE, triY + 28)   // triangle in TOP half → label BELOW it
-    : Math.max(priceY0 + CLEARANCE, triY - LABEL_H - 28);   // triangle in BOTTOM half → label ABOVE it
-  let entryLabelTop = placeLabel(entryY);
-  let exitLabelTop  = placeLabel(exitY);
-
-  // Horizontal-collision stagger: if entry/exit are close together AND
-  // both labels ended up at the same vertical side, push the exit label
-  // by another label-height in the same direction so they don't overlap.
   const LABEL_W = 130;
+  const GAP = 6;
+  const placeAbove = (triY) => triY - LABEL_H - GAP;
+  const placeBelow = (triY) => triY + GAP;
+  const clamp     = (y) => Math.max(priceY0 + 2, Math.min(priceY1 - LABEL_H - 2, y));
+  const fitsAbove = (triY) => placeAbove(triY) >= priceY0 + 2;
+
+  let entryLabelTop = fitsAbove(entryY) ? placeAbove(entryY) : placeBelow(entryY);
+  let exitLabelTop  = fitsAbove(exitY)  ? placeAbove(exitY)  : placeBelow(exitY);
+
+  // Horizontal-collision stagger: if entry/exit columns are too close, the
+  // chips would overlap each other. Flip the exit chip to the side of its
+  // triangle OPPOSITE the entry chip's side, so the two end up on opposite
+  // vertical sides of their respective triangles.
   const collides = Math.abs(exitX - entryX) < LABEL_W;
-  if (collides && Math.abs(entryLabelTop - exitLabelTop) < LABEL_H + 4) {
-    // Same side — offset exit by ~26px in the direction away from its triangle
-    const exitSide = exitLabelTop > exitY ? 1 : -1;
-    exitLabelTop  = exitLabelTop + exitSide * (LABEL_H + 4);
-    exitLabelTop  = Math.max(priceY0 + CLEARANCE, Math.min(priceY1 - LABEL_H - CLEARANCE, exitLabelTop));
+  if (collides) {
+    const entryAbove = entryLabelTop < entryY;
+    exitLabelTop = entryAbove ? placeBelow(exitY) : placeAbove(exitY);
   }
+  entryLabelTop = clamp(entryLabelTop);
+  exitLabelTop  = clamp(exitLabelTop);
 
   return {
     entryX, exitX,
