@@ -303,6 +303,20 @@ onUnmounted(() => {
 
 const mode = ref("single"); // "single" | "watchlist"
 
+// Methodology lead-in starts EXPANDED so a first-time visitor (judge,
+// casual user) sees the 4-paragraph context before encountering jargon
+// in the result card. Toggles persist in localStorage so returning
+// users who collapsed it stay collapsed; new users always see it.
+const METHODOLOGY_PREF_KEY = "strategyReferee.methodologyExpanded";
+const _mePref = (() => {
+  try { const v = localStorage.getItem(METHODOLOGY_PREF_KEY); return v === null ? null : v === "true"; }
+  catch { return null; }
+})();
+const methodologyExpanded = ref(_mePref ?? true);
+watch(methodologyExpanded, (v) => {
+  try { localStorage.setItem(METHODOLOGY_PREF_KEY, String(v)); } catch {}
+});
+
 // Single-token state
 // Defaults pre-fill to TON / 2026-05-24, the strongest current PASS (TP
 // +17.26% in 8 days). The first "Evaluate" click — by a hackathon judge
@@ -893,10 +907,57 @@ const trendBadgeClass = computed(() => {
         </div>
         <nav class="flex gap-6 text-sm text-gray-500">
           <a href="https://github.com/bradyhouse/strategy-referee" class="hover:text-gray-900">GitHub</a>
-          <a href="https://github.com/bradyhouse/sigma-swing-agent/blob/main/docs/cmc_evidence_table.md" class="hover:text-gray-900">Evidence ↗</a>
+          <a href="https://github.com/bradyhouse/strategy-referee/blob/main/docs/methodology.md" class="hover:text-gray-900">Methodology ↗</a>
+          <button @click="methodologyExpanded = !methodologyExpanded" class="hover:text-gray-900 font-medium">
+            {{ methodologyExpanded ? "Hide context" : "How did we get here?" }}
+          </button>
         </nav>
       </div>
     </header>
+
+    <!-- Methodology lead-in — public-facing context so first-time visitors
+         (judges, casual users) understand the tool's lineage before
+         encountering jargon like "shelved" / "rescue candidate" / "audit
+         transparency" in the result card. Collapsible because returning
+         users don't need to re-read it; expanded on the FIRST page view by
+         default so the anti-hype framing lands before the first Evaluate
+         click. -->
+    <div v-if="methodologyExpanded" class="bg-amber-50/70 border-b border-amber-200">
+      <div class="max-w-7xl mx-auto px-6 py-5">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+          <div class="md:col-span-4 mb-1">
+            <h2 class="text-base font-bold text-amber-900">How did we get here?</h2>
+            <p class="text-xs text-amber-800/80 mt-1">
+              The thesis behind every <strong>PASS</strong> verdict, in 4 paragraphs. Full evidence in <a href="https://github.com/bradyhouse/strategy-referee/blob/main/docs/methodology.md" target="_blank" rel="noopener" class="font-mono underline hover:no-underline">docs/methodology.md</a>.
+            </p>
+          </div>
+          <div class="rounded-md bg-white border border-amber-200 p-3">
+            <div class="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">1. The audit</div>
+            <p class="text-xs text-gray-700 leading-relaxed">
+              <strong>21 strategy archetypes</strong> walk-forward-tested at <strong>1.5% real round-trip fees</strong> on a mixed crypto + stock universe (134 products, ~5 years). Per-archetype param grid; 60/40 in-sample/out-of-sample split; OOS-positive AND per-product defensibility required for survival.
+            </p>
+          </div>
+          <div class="rounded-md bg-white border border-amber-200 p-3">
+            <div class="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">2. The survivors</div>
+            <p class="text-xs text-gray-700 leading-relaxed">
+              <strong>2 archetypes survived</strong>: <code class="font-mono text-[11px]">rsi_oversold + SMA200</code> (n=29 OOS, mean <strong class="text-emerald-700">+0.71%</strong>, win <strong class="text-emerald-700">62%</strong>) and <code class="font-mono text-[11px]">mfi_oversold + SMA200</code> (n=18, mean <strong class="text-emerald-700">+0.89%</strong>, win <strong class="text-emerald-700">56%</strong>). Both buy oversold dips inside long-horizon uptrends with disciplined exits.
+            </p>
+          </div>
+          <div class="rounded-md bg-white border border-amber-200 p-3">
+            <div class="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">3. The other 44</div>
+            <p class="text-xs text-gray-700 leading-relaxed">
+              Everything else — Donchian, MACD/Stoch, ORB, bullish-engulfing, alligator, etc. — was <strong>rejected</strong> at OOS validation. This tool refuses to emit them as signals. The "Audit transparency" panel on every result card shows how the 46 daily-crypto rejects fare on the current CMC top-30 (spoiler: <strong>1 marginal rescue candidate</strong>; the rest stayed negative).
+            </p>
+          </div>
+          <div class="rounded-md bg-white border border-amber-200 p-3">
+            <div class="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">4. What PASS means</div>
+            <p class="text-xs text-gray-700 leading-relaxed">
+              PASS = "the current setup matches the survivor fingerprint." NOT "this token will go up." The edge is <strong>population-level</strong> (+0.71% mean across many trades); <strong>~38% of audit trades lost money</strong>. The disclosure on every PASS view restates this in-band. This is an evaluator, not a fortune teller.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Mode bar -->
     <div class="bg-gray-50 border-b border-gray-200">
@@ -1650,7 +1711,7 @@ const trendBadgeClass = computed(() => {
     <!-- Footer -->
     <footer class="border-t border-gray-200 py-6 text-center text-xs text-gray-500">
       Methodology: 21 archetypes audited, 2 walk-forward survivors.
-      <a href="https://github.com/bradyhouse/sigma-swing-agent/blob/main/docs/cmc_evidence_table.md" class="text-gray-700 underline hover:text-gray-900">Source</a>.
+      <a href="https://github.com/bradyhouse/strategy-referee/blob/main/docs/methodology.md" class="text-gray-700 underline hover:text-gray-900">Source</a>.
     </footer>
 
     <!-- Chart right-click context menu (Display prefs). Teleported to body

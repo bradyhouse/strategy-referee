@@ -248,6 +248,34 @@ test.describe("Verdict views — visual smokes", () => {
     await page.screenshot({ path: "tests/e2e/screenshots/pin-lens-after-wheel.png", fullPage: true });
   });
 
+  test("Methodology lead-in renders on first visit + collapsible via header link", async ({ page }) => {
+    // Important: clear localStorage so this test simulates a first-time visitor.
+    // Without the clear, a prior test's localStorage write could mask the
+    // default-expanded behavior we want to verify.
+    await page.addInitScript(() => { try { localStorage.removeItem("strategyReferee.methodologyExpanded"); } catch {} });
+    await page.goto("/");
+
+    // The 4-paragraph context block should be expanded for first-time visitors,
+    // BEFORE they encounter any jargon. Each of the 4 columns is labeled.
+    await expect(page.getByText("How did we get here?")).toBeVisible();
+    await expect(page.getByText("1. The audit")).toBeVisible();
+    await expect(page.getByText("2. The survivors")).toBeVisible();
+    await expect(page.getByText("3. The other 44")).toBeVisible();
+    await expect(page.getByText("4. What PASS means")).toBeVisible();
+
+    // Header link should NOT point to the private sigma-swing-agent repo.
+    const sigmaLink = page.locator('a[href*="sigma-swing-agent"]');
+    await expect(sigmaLink).toHaveCount(0);
+    // The Methodology link should be visible (self-contained replacement)
+    await expect(page.getByRole("link", { name: /Methodology/ })).toBeVisible();
+
+    // Collapse via the toggle button in the header nav
+    await page.getByRole("button", { name: /Hide context/ }).click();
+    await page.waitForTimeout(200);
+    await expect(page.getByText("1. The audit")).not.toBeVisible();
+    await expect(page.getByRole("button", { name: /How did we get here\?/ })).toBeVisible();
+  });
+
   test("Audit transparency panel — collapsed by default, expandable, rescue candidate visible", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();

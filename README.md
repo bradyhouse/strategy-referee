@@ -81,7 +81,7 @@ Extract the spec as standalone JSON:
 node src/index.js --token ETH --at-date 2025-09-25 --emit-spec > eth-spec.json
 ```
 
-That JSON validates against `@stratchai/strategy-spec`'s schema and is consumable by `@stratchai/backtest` for further validation. It's the same shape used by the production `bradyhouse/sigma-swing-agent` fleet — not a custom format.
+That JSON validates against `@stratchai/strategy-spec`'s schema and is consumable by `@stratchai/backtest` for further validation. It's the canonical strategy-spec format — anything that consumes specs in that shape can run the emitted strategy as-is.
 
 ## Status
 
@@ -101,7 +101,7 @@ CLI is **feature-complete** for the demo. Web UI per [`docs/wireframes/`](docs/w
 
 ## The thesis
 
-A 21-archetype walk-forward audit at 1.5% real round-trip fees on a mixed crypto + stock universe identified two survivors. Full evidence in [`bradyhouse/sigma-swing-agent docs/cmc_evidence_table.md`](https://github.com/bradyhouse/sigma-swing-agent/blob/main/docs/cmc_evidence_table.md).
+A 21-archetype walk-forward audit at 1.5% real round-trip fees on a mixed crypto + stock universe identified two survivors. Full evidence in [`docs/methodology.md`](docs/methodology.md) — the audit setup, the 21-archetype final accounting, the structural fingerprint shared by the survivors, and the CMC top-30 re-check that confirms the cull verdicts hold on the current universe.
 
 | Survivor | Defensibility | OOS mean | OOS win rate |
 |---|---|---|---|
