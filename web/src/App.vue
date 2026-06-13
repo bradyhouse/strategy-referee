@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { CathodeCandle } from "@stratchai/cathode";
+import { CathodeCandle, CathodeGrid } from "@stratchai/cathode";
 import "@stratchai/cathode/style";
 // Static bundle of the audit-universe screening run. 46 shelved daily-crypto
 // archetypes × CMC top-30, 1.5% real round-trip fees, walk-forward on
@@ -634,9 +634,15 @@ const tokenAuditRows = computed(() => {
       rescue_candidate: rescue,
     });
   }
-  // Sort by token-level mean P&L descending so any rescue candidates +
-  // best-on-this-token rows surface at the top of the expanded table.
-  rows.sort((a, b) => (b.token_mean_net_pct ?? -Infinity) - (a.token_mean_net_pct ?? -Infinity));
+  // Rescue candidates pinned to the top of the grid (they're the answer
+  // to the "did any cull verdict not hold on CMC" question), then by
+  // this-token's mean P&L descending. Without the pin, a rescue
+  // candidate with zero trades on the current token sorts to the bottom
+  // and scrolls off-screen — burying the load-bearing finding.
+  rows.sort((a, b) => {
+    if (a.rescue_candidate !== b.rescue_candidate) return a.rescue_candidate ? -1 : 1;
+    return (b.token_mean_net_pct ?? -Infinity) - (a.token_mean_net_pct ?? -Infinity);
+  });
   return rows;
 });
 
@@ -647,6 +653,74 @@ const auditMeta = computed(() => ({
   n_rescue:       auditScreening.n_rescue_candidates ?? 0,
   fee:            auditScreening.fee_round_trip_pct ?? 1.5,
 }));
+
+// CathodeGrid column definitions — translate the audit-row shape into
+// cathode's ColDef[] format. Right-aligned numeric columns; value
+// formatters for percent + status; cellStyle inline so the percent
+// columns get red/green coloring without a global stylesheet (cathode's
+// theme system handles bg/text/glow; cellStyle handles per-row signal).
+const auditColumns = computed(() => {
+  const sym = result.value?.symbol ?? "TOKEN";
+  const numericRight = { textAlign: "right" };
+  return [
+    { field: "strategy", headerName: "Archetype", width: 280, flex: 2 },
+    {
+      field: "token_n",
+      headerName: `on ${sym} n`,
+      width: 80,
+      cellStyle: numericRight,
+      valueFormatter: p => p.value ?? "—",
+    },
+    {
+      field: "token_mean_net_pct",
+      headerName: `on ${sym} mean`,
+      width: 110,
+      cellStyle: p => ({
+        textAlign: "right",
+        color: p.value == null ? undefined : p.value >= 0 ? "#34d399" : "#fb7185",
+      }),
+      valueFormatter: p => p.value == null ? "—" : fmtPct(p.value),
+    },
+    {
+      field: "token_win_rate",
+      headerName: `on ${sym} win`,
+      width: 80,
+      cellStyle: numericRight,
+      valueFormatter: p => p.value == null ? "—" : (p.value * 100).toFixed(0) + "%",
+    },
+    { field: "audit_n",        headerName: "pooled n",      width: 80,  cellStyle: numericRight },
+    {
+      field: "audit_mean_net_pct",
+      headerName: "pooled mean",
+      width: 110,
+      cellStyle: p => ({
+        textAlign: "right",
+        color: p.value == null ? undefined : p.value >= 0 ? "#34d399" : "#fb7185",
+      }),
+      valueFormatter: p => p.value == null ? "—" : fmtPct(p.value),
+    },
+    { field: "culled_at",      headerName: "Culled",        width: 100 },
+    {
+      field: "rescue_candidate",
+      headerName: "Status",
+      width: 110,
+      cellStyle: p => ({
+        textAlign: "center",
+        fontWeight: p.value ? 700 : 400,
+        color: p.value ? "#fbbf24" : undefined,
+      }),
+      valueFormatter: p => p.value ? "⚡ RESCUE" : "shelved",
+    },
+  ];
+});
+
+// Per-row inline style — highlight rescue candidates with a subtle amber tint.
+function auditRowStyle(p) {
+  if (p.data?.rescue_candidate) {
+    return { background: "rgba(251, 191, 36, 0.08)" };  // matches the amber RESCUE badge
+  }
+  return undefined;
+}
 
 // Formatters
 function fmtUsd(n) {
@@ -1614,46 +1688,24 @@ const trendBadgeClass = computed(() => {
             <p class="text-xs text-gray-500 mb-3 leading-relaxed">
               Walk-forward screen of 46 shelved daily-crypto strategies against the CMC top-30 universe ({{ auditMeta.universe_size }} unique symbols after stablecoin dedupe), at {{ auditMeta.fee }}% real round-trip fees, on Kraken 720-bar history (scanned {{ auditMeta.scanned_at }}). Sorted by this-token's mean net P&L after fees. <strong>Rescue candidate</strong> = pooled-universe mean &gt; 0 AND n ≥ 10 — surfaces archetypes where the audit's universe-specific cull verdict might not hold on CMC's curated top-30.
             </p>
-            <div class="overflow-x-auto rounded-lg border border-gray-200">
-              <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-[10px] uppercase tracking-wide text-gray-600 font-bold">
-                  <tr>
-                    <th class="text-left px-3 py-2">Archetype</th>
-                    <th class="text-right px-3 py-2 tabular-nums" title="Trades fired on this token over the screening window">on {{ result.symbol }} n</th>
-                    <th class="text-right px-3 py-2 tabular-nums">on {{ result.symbol }} mean</th>
-                    <th class="text-right px-3 py-2 tabular-nums">on {{ result.symbol }} win%</th>
-                    <th class="text-right px-3 py-2 tabular-nums" title="Across the CMC top-30 universe">pooled n</th>
-                    <th class="text-right px-3 py-2 tabular-nums">pooled mean</th>
-                    <th class="text-left px-3 py-2">Culled</th>
-                    <th class="text-center px-3 py-2 w-20">Status</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100">
-                  <tr v-for="row in tokenAuditRows" :key="row.strategy"
-                      :class="row.rescue_candidate ? 'bg-amber-50/40' : 'hover:bg-gray-50'">
-                    <td class="px-3 py-2 font-mono text-gray-900">{{ row.strategy }}</td>
-                    <td class="px-3 py-2 text-right font-mono tabular-nums text-gray-700">{{ row.token_n }}</td>
-                    <td class="px-3 py-2 text-right font-mono tabular-nums"
-                        :class="(row.token_mean_net_pct ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'">
-                      {{ row.token_n ? fmtPct(row.token_mean_net_pct) : "—" }}
-                    </td>
-                    <td class="px-3 py-2 text-right font-mono tabular-nums text-gray-700">
-                      {{ row.token_n ? (row.token_win_rate * 100).toFixed(0) + "%" : "—" }}
-                    </td>
-                    <td class="px-3 py-2 text-right font-mono tabular-nums text-gray-500">{{ row.audit_n }}</td>
-                    <td class="px-3 py-2 text-right font-mono tabular-nums"
-                        :class="(row.audit_mean_net_pct ?? 0) >= 0 ? 'text-emerald-600' : 'text-gray-500'">
-                      {{ fmtPct(row.audit_mean_net_pct) }}
-                    </td>
-                    <td class="px-3 py-2 text-gray-500 font-mono text-[10px]">{{ row.culled_at || "—" }}</td>
-                    <td class="px-3 py-2 text-center">
-                      <span v-if="row.rescue_candidate"
-                            class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">⚡ RESCUE</span>
-                      <span v-else class="text-[10px] text-rose-700">shelved</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <!-- CathodeGrid — second showcase of the cathode library after
+                 CathodeCandle. The data was already worth showing as a table;
+                 wrapping it in cathode's CRT-styled grid means more demo
+                 theater for the @stratchai/cathode prize angle. Theme is
+                 bound to chartTheme so toggling the chart's phosphor/amber/
+                 paper theme via the Display menu updates this grid too —
+                 visual consistency across the page. -->
+            <div class="h-[500px] rounded-lg overflow-hidden border border-gray-200">
+              <CathodeGrid
+                :column-defs="auditColumns"
+                :row-data="tokenAuditRows"
+                :get-row-style="auditRowStyle"
+                :theme="chartTheme"
+                :row-height="28"
+                :curvature="6"
+                :scanlines="scanlines"
+                :glow="glow"
+              />
             </div>
             <p class="mt-3 text-xs text-gray-500 italic">
               Sources: <a href="https://www.npmjs.com/package/@stratchai/strategy-spec" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/strategy-spec</a> for archetype params + <a href="https://www.npmjs.com/package/@stratchai/backtest" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/backtest</a> engine + <a href="https://www.npmjs.com/package/@stratchai/indicators" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/indicators</a> for signal computation. Empirical receipts behind every cull verdict — judges can verify the audit was rigorous, not asserted.
