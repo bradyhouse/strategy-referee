@@ -302,7 +302,21 @@ const mode = ref("single"); // "single" | "watchlist"
 // date to get real-time evaluation (the placeholder hint surfaces once
 // the field goes blank).
 const token = ref("TON");
-const atDate = ref("2026-05-24");
+// Per-mode date state. The shared date input renders ONE field in the
+// mode bar, but each mode tracks its own preferred date so switching
+// modes doesn't pollute the other's default. Without this, the watchlist
+// auto-prefill (2025-09-25) leaked into single-mode after a Watchlist
+// click → Single switch → user saw TON / 2025-09-25 (REJECT) instead of
+// TON / 2026-05-24 (PASS).
+const singleAtDate    = ref("2026-05-24");
+const watchlistAtDate = ref("");
+const atDate = computed({
+  get() { return mode.value === "single" ? singleAtDate.value : watchlistAtDate.value; },
+  set(v) {
+    if (mode.value === "single") singleAtDate.value = v;
+    else                          watchlistAtDate.value = v;
+  },
+});
 const loading = ref(false);
 const result = ref(null);
 const error = ref(null);

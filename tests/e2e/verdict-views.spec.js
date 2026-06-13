@@ -134,6 +134,32 @@ test.describe("Verdict views — visual smokes", () => {
     await page.screenshot({ path: "tests/e2e/screenshots/reject-btc-full.png", fullPage: true });
   });
 
+  test("Date doesn't leak across single/watchlist mode switches", async ({ page }) => {
+    await page.goto("/");
+    const dateInput = page.locator('input[type="date"]');
+
+    // Single mode default: 2026-05-24 (the TON PASS demo)
+    await expect(dateInput).toHaveValue("2026-05-24");
+
+    // Switch to Watchlist → auto-prefill sets 2025-09-25 (historical 3-PASS demo)
+    await page.getByRole("button", { name: /^Watchlist$/ }).click();
+    await expect(dateInput).toHaveValue("2025-09-25");
+
+    // Switch BACK to Single → must restore 2026-05-24, NOT inherit 2025-09-25
+    // (the canonical bug this fix addresses).
+    await page.getByRole("button", { name: /^Single token$/ }).click();
+    await expect(dateInput).toHaveValue("2026-05-24");
+
+    // Customize the single-mode date — should persist across a Watchlist
+    // round-trip without overwriting the watchlist's own date.
+    await dateInput.fill("2025-09-25");
+    await expect(dateInput).toHaveValue("2025-09-25");
+    await page.getByRole("button", { name: /^Watchlist$/ }).click();
+    await expect(dateInput).toHaveValue("2025-09-25");  // watchlist's own date
+    await page.getByRole("button", { name: /^Single token$/ }).click();
+    await expect(dateInput).toHaveValue("2025-09-25");  // single's customized date
+  });
+
   test("Watchlist mode auto-pre-fills with historical 3-PASS demo on first switch", async ({ page }) => {
     await page.goto("/");
     // Switch to Watchlist mode. The auto-pre-fill should set both the
