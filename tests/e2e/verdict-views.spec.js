@@ -56,6 +56,15 @@ test.describe("Verdict views — visual smokes", () => {
     // Both price labels must be visible
     await expect(page.locator("text=▲ ENTRY").first()).toBeVisible();
     await expect(page.locator("text=▼ EXIT").first()).toBeVisible();
+
+    // TradingView-style cathode branding watermark — small clickable badge
+    // top-left of every chart. Direct showcase value for the @stratchai/*
+    // library prize angles. If the watermark vanishes, the hackathon's
+    // "Best CMC Data Use" pitch loses its load-bearing visual citation.
+    // (Multiple links to the cathode npm page exist; the watermark is the
+    // one with the ⚡ icon, distinguishing it from the italic footer credit.)
+    const watermark = page.getByRole("link", { name: /⚡.*@stratchai\/cathode/ });
+    await expect(watermark).toBeVisible();
   });
 
   // BCH is the MFI-triggered variant case + a different chart range than

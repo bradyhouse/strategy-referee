@@ -1207,6 +1207,27 @@ const trendBadgeClass = computed(() => {
                 :slot-w="6"
               />
 
+              <!-- Cathode branding watermark (TradingView-pattern) — small,
+                   persistent, clickable badge in the top-left of every chart.
+                   Demo theater for the @stratchai/* library showcase: lands
+                   in every screenshot, recording, and live judge session.
+                   Direct prize-angle support for Best CMC Data Use + Track 2.
+                   Phosphor-themed visual register (translucent green-ringed
+                   bg matches the default CRT aesthetic). -->
+              <a href="https://www.npmjs.com/package/@stratchai/cathode"
+                 target="_blank" rel="noopener"
+                 class="absolute top-2 left-2 z-20 pointer-events-auto
+                        flex items-center gap-1 px-1.5 py-0.5 rounded
+                        text-[10px] font-mono
+                        bg-black/40 text-emerald-300 hover:text-emerald-200
+                        border border-emerald-400/40 hover:border-emerald-300/70
+                        backdrop-blur-sm shadow-sm
+                        no-underline transition"
+                 title="Chart powered by @stratchai/cathode — click to view on npm">
+                <span class="text-emerald-400">⚡</span>
+                <span>@stratchai/cathode</span>
+              </a>
+
               <!-- Chart toolbar overlay: visible button equivalents for the
                    right-click context menu (which most users don't discover)
                    plus the lens-pin toggle. Sits top-right, z above all the
