@@ -611,6 +611,23 @@ function copyCliCommand() {
 // table for the currently-evaluated token.
 const auditExpanded = ref(false);
 
+// Click-to-expand per-strategy detail. Stores the strategy name of the row
+// the user clicked; rendered as a detail card below the grid showing the
+// culled-reason summary (rich rationale from the audit script).
+const auditSelectedStrategy = ref(null);
+function onAuditRowClicked(payload) {
+  const strat = payload?.data?.strategy;
+  if (!strat) return;
+  auditSelectedStrategy.value = auditSelectedStrategy.value === strat ? null : strat;
+}
+const auditSelectedRow = computed(() =>
+  tokenAuditRows.value.find(r => r.strategy === auditSelectedStrategy.value) || null
+);
+
+// Glossary expansion (separate state from the panel toggle so users can
+// open both independently).
+const auditGlossaryExpanded = ref(false);
+
 // Map (archetype name → audit row for the requested symbol). Reactive on
 // result so flipping tokens auto-refreshes the visible audit slice.
 const tokenAuditRows = computed(() => {
@@ -624,9 +641,11 @@ const tokenAuditRows = computed(() => {
     rows.push({
       strategy: r.strategy,
       culled_at: r.culled_at,
+      culled_reason: r.culled_reason_summary || "",   // surfaced via row expansion below
       audit_n: r.total?.n ?? 0,
       audit_mean_net_pct: r.total?.mean_net_pct ?? null,
       audit_win_rate: r.total?.win_rate ?? null,
+      audit_exit_reasons: r.total?.exit_reasons,
       token_n: perToken.n,
       token_mean_net_pct: perToken.mean_net_pct,
       token_win_rate: perToken.win_rate,
@@ -1694,8 +1713,43 @@ const trendBadgeClass = computed(() => {
           </button>
 
           <div v-if="auditExpanded" class="mt-3">
+            <!-- Snapshot framing — load-bearing for honesty. The numbers in
+                 this table are NOT computed live for {{ result.symbol }}.
+                 They're the per-archetype, per-token results from a single
+                 walk-forward run sigma's `screen_audit_universe.js` script
+                 produced on {{ auditMeta.scanned_at }}. Pooled stats are
+                 universe-wide; per-{{ result.symbol }} stats are this
+                 token's slice of that run. Both come from the same
+                 timestamped JSON. -->
+            <div class="bg-amber-50 border border-amber-200 rounded-md p-3 mb-3 text-xs text-amber-900 leading-relaxed">
+              <strong>Snapshot, not live evaluation.</strong> These numbers come from a single walk-forward audit
+              run on <span class="font-mono">{{ auditMeta.scanned_at }}</span> — 46 shelved daily-crypto
+              archetypes evaluated across {{ auditMeta.universe_size }} CMC top-30 symbols at
+              {{ auditMeta.fee }}% real round-trip fees on Kraken 720-bar history. The "on {{ result.symbol }}"
+              columns show that snapshot's per-token slice; the "pooled" columns show the universe-wide
+              aggregate. Re-running for fresh numbers requires
+              <span class="font-mono">scripts/screen_audit_universe.js</span> sigma-side.
+            </div>
+
+            <!-- Glossary — terminology audit. "shelved", "culled", "RESCUE"
+                 all carry sigma-project meaning that hackathon judges have
+                 no prior context for. Collapsed by default; click to read. -->
+            <details class="mb-3 text-xs">
+              <summary class="cursor-pointer text-slate-700 font-semibold hover:text-slate-900 select-none py-1">
+                ⓘ Glossary — what do "shelved" / "culled" / "RESCUE" mean?
+              </summary>
+              <div class="mt-2 ml-4 space-y-1.5 text-gray-700 leading-relaxed">
+                <p><strong class="font-semibold">shelved</strong> — strategy spec exists but no production capital is deployed against it. Reason: walk-forward at 1.5% real fees showed negative expectancy.</p>
+                <p><strong class="font-semibold">culled</strong> — same as shelved, but with a documented kill date marking when the verdict was finalized. The "Culled" column shows that date.</p>
+                <p><strong class="font-semibold">⚡ RESCUE</strong> — archetype whose pooled-universe mean was positive (&gt; 0) AND n ≥ 10 on the re-screen against the current CMC top-30. Surfaces strategies where the audit's original cull verdict might not hold today. Marginal: needs manual walk-forward + adversarial review before un-shelving.</p>
+                <p><strong class="font-semibold">pooled mean / pooled n</strong> — aggregate over the entire {{ auditMeta.universe_size }}-symbol universe. NOT specific to {{ result.symbol }}.</p>
+                <p><strong class="font-semibold">on {{ result.symbol }} mean / n</strong> — strictly this token's slice of the audit. When n = 0, the strategy never fired on {{ result.symbol }} during the audit (commonly because the survivor-family rules require ≥250 daily bars — newer tokens are out-of-scope by design).</p>
+                <p><strong class="font-semibold">click any row</strong> for the strategy's full audit-time cull rationale.</p>
+              </div>
+            </details>
+
             <p class="text-xs text-gray-500 mb-3 leading-relaxed">
-              Walk-forward screen of 46 shelved daily-crypto strategies against the CMC top-30 universe ({{ auditMeta.universe_size }} unique symbols after stablecoin dedupe), at {{ auditMeta.fee }}% real round-trip fees, on Kraken 720-bar history (scanned {{ auditMeta.scanned_at }}). Sorted by this-token's mean net P&L after fees. <strong>Rescue candidate</strong> = pooled-universe mean &gt; 0 AND n ≥ 10 — surfaces archetypes where the audit's universe-specific cull verdict might not hold on CMC's curated top-30.
+              Sorted: rescue candidates pinned to top, then by this-token's mean net P&L descending. Click a row to expand its cull rationale.
             </p>
             <!-- CathodeGrid — second showcase of the cathode library after
                  CathodeCandle. Hardcoded to "paper" theme (rather than
@@ -1718,8 +1772,63 @@ const trendBadgeClass = computed(() => {
                 :curvature="6"
                 :scanlines="false"
                 :glow="false"
+                @row-clicked="onAuditRowClicked"
               />
             </div>
+
+            <!-- Per-strategy detail card. Shows when a row is clicked.
+                 Surfaces the culled_reason_summary from the audit script
+                 — concrete evidence per strategy (sample size, win rate,
+                 mean P&L, dominant failure mode) so judges can read why
+                 each archetype was shelved without having to grep memory
+                 files. -->
+            <div v-if="auditSelectedRow" class="mt-4 bg-slate-50 border border-slate-300 rounded-lg p-4">
+              <div class="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <div class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Cull rationale</div>
+                  <div class="text-sm font-mono font-semibold text-slate-900">{{ auditSelectedRow.strategy }}</div>
+                  <div class="text-xs text-slate-500 mt-0.5">Culled {{ auditSelectedRow.culled_at || "(no date)" }}</div>
+                </div>
+                <button
+                  @click="auditSelectedStrategy = null"
+                  class="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-200"
+                >
+                  ✕ close
+                </button>
+              </div>
+
+              <div v-if="auditSelectedRow.culled_reason" class="text-xs text-slate-700 leading-relaxed mb-3">
+                {{ auditSelectedRow.culled_reason }}
+              </div>
+              <div v-else class="text-xs text-slate-500 italic mb-3">
+                No cull rationale recorded for this archetype. Pool stats below.
+              </div>
+
+              <div class="grid grid-cols-2 gap-4 text-xs">
+                <div class="bg-white border border-slate-200 rounded p-3">
+                  <div class="font-semibold text-slate-600 uppercase tracking-wide text-[10px] mb-1.5">Pool-wide (universe)</div>
+                  <div class="space-y-0.5 font-mono">
+                    <div>n = {{ auditSelectedRow.audit_n }}</div>
+                    <div>mean = <span :class="auditSelectedRow.audit_mean_net_pct >= 0 ? 'text-emerald-700' : 'text-rose-700'">{{ fmtPct(auditSelectedRow.audit_mean_net_pct) }}</span></div>
+                    <div>win rate = {{ auditSelectedRow.audit_win_rate != null ? (auditSelectedRow.audit_win_rate * 100).toFixed(0) + '%' : '—' }}</div>
+                  </div>
+                </div>
+                <div class="bg-white border border-slate-200 rounded p-3">
+                  <div class="font-semibold text-slate-600 uppercase tracking-wide text-[10px] mb-1.5">On {{ result.symbol }} (this token's slice)</div>
+                  <div class="space-y-0.5 font-mono">
+                    <div>n = {{ auditSelectedRow.token_n }}</div>
+                    <div v-if="auditSelectedRow.token_n > 0">mean = <span :class="auditSelectedRow.token_mean_net_pct >= 0 ? 'text-emerald-700' : 'text-rose-700'">{{ fmtPct(auditSelectedRow.token_mean_net_pct) }}</span></div>
+                    <div v-if="auditSelectedRow.token_n > 0">win rate = {{ (auditSelectedRow.token_win_rate * 100).toFixed(0) }}%</div>
+                    <div v-else class="text-slate-500 italic">No trades on {{ result.symbol }} during this audit run (likely insufficient history for trend filter).</div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="auditSelectedRow.rescue_candidate" class="mt-3 bg-amber-50 border border-amber-200 rounded p-2.5 text-xs text-amber-900">
+                <strong>⚡ Rescue candidate.</strong> This archetype's pooled-universe mean is positive on the current CMC top-30 — contradicts the original cull verdict. Marginal: needs manual walk-forward + adversarial verification before un-shelving.
+              </div>
+            </div>
+
             <p class="mt-3 text-xs text-gray-500 italic">
               Sources: <a href="https://www.npmjs.com/package/@stratchai/strategy-spec" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/strategy-spec</a> for archetype params + <a href="https://www.npmjs.com/package/@stratchai/backtest" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/backtest</a> engine + <a href="https://www.npmjs.com/package/@stratchai/indicators" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/indicators</a> for signal computation. Empirical receipts behind every cull verdict — judges can verify the audit was rigorous, not asserted.
             </p>

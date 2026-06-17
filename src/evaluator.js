@@ -114,8 +114,10 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
   }
 
   if (klines.length < MIN_BARS) {
+    const tokenAgeDays = klines.length;
+    const monthsOld = (tokenAgeDays / 30).toFixed(1);
     return reject(sym, "INSUFFICIENT_HISTORY",
-      `Need ≥${MIN_BARS} daily bars to compute SMA(200) reliably; got ${klines.length}. Token is likely too new (or the as-of date is too early).`,
+      `${sym} has ${tokenAgeDays} daily bars of trading history (~${monthsOld} months). The audit-validated survivor family requires the long-horizon uptrend filter \`close > SMA(200)\` — that filter needs ≥${MIN_BARS} daily bars to be reliable. This isn't "we don't know about ${sym}" — it's "the audit-validated rule has no opinion on tokens this new." Anti-hype-by-design: the walk-forward survivors were validated on tokens with established uptrends, not on freshly-launched coins.`,
       null,
       {
         gate: [
