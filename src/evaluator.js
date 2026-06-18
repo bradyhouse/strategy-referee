@@ -262,8 +262,23 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
     // last N bars that fit at slotW; without trimming, recent bars
     // dominate and the entry/exit scroll off the left edge.
     if (forwardLook && !forwardLook.status) {
-      const PAD = 60;  // bars before entry + bars after exit; tuned so a
-                       // typical 10-day hold sits comfortably centered
+      const PAD_BEFORE = 60;  // bars before entry; tuned so a typical
+                              //   10-day hold sits comfortably centered
+      const PAD_AFTER  = 66;  // bars after exit. Why asymmetric: cathode
+                              //   draws marker triangles ±7px from the
+                              //   candle's center x-pixel. If the exit
+                              //   candle lands at the rightmost visible
+                              //   slot, the triangle's right tip overlaps
+                              //   cathode's ~56px price-axis gutter where
+                              //   price labels are drawn ON TOP, visually
+                              //   chopping the marker. +6 extra bars past
+                              //   the exit pulls the exit candle off the
+                              //   rightmost slot so the triangle stays
+                              //   fully inside the plot area. Drift risk:
+                              //   if cathode changes slotW (currently 6px)
+                              //   or triangle half-width (y=7 at
+                              //   cathode.js:1979), this buffer becomes
+                              //   wrong — audit during cathode upgrades.
       const entryMs = Date.parse(forwardLook.entry_date + "T00:00:00Z");
       const exitMs  = Date.parse(forwardLook.exit_date  + "T00:00:00Z");
       let entryIdx = -1, exitIdx = -1;
@@ -272,8 +287,8 @@ export async function evaluateTokenWithQuote(symbol, cmcQuote, opts = {}) {
         if (exitIdx  < 0 && chart.candles[j].start >= exitMs)  { exitIdx = j; break; }
       }
       if (entryIdx >= 0) {
-        const startIdx = Math.max(0, entryIdx - PAD);
-        const endIdx   = Math.min(chart.candles.length, (exitIdx >= 0 ? exitIdx : entryIdx) + PAD + 1);
+        const startIdx = Math.max(0, entryIdx - PAD_BEFORE);
+        const endIdx   = Math.min(chart.candles.length, (exitIdx >= 0 ? exitIdx : entryIdx) + PAD_AFTER + 1);
         chart.candles = chart.candles.slice(startIdx, endIdx);
         chart.sma200  = chart.sma200.slice(startIdx, endIdx);
       }

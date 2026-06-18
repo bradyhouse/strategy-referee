@@ -206,6 +206,20 @@ const chartContainerBg = computed(() => {
 // at which point the natural hover-to-magnify UX takes over.
 const chartContainerRef = ref(null);
 
+// Fullscreen expand state for the chart. The inline chart is fixed at
+// h-80 (320px) which is good for an inline result card but cramped if
+// a judge wants to actually inspect candles. ⛶ Expand opens a teleported
+// modal at near-viewport size with a second CathodeCandle instance using
+// a wider slot-w. The inline overlays (hold-period band + drop-lines)
+// are intentionally NOT duplicated in the modal — they're tied to
+// chartContainerRef's geometry, and the modal's value is the raw cathode
+// render with markers + watermark, not pixel-parity overlays. ESC and
+// click-on-backdrop both close.
+const chartExpanded = ref(false);
+function onChartEsc(e) {
+  if (e.key === "Escape" && chartExpanded.value) chartExpanded.value = false;
+}
+
 // Cathode chart layout constants (lifted from cathode dist;
 // confirmed at `Ve = 8, Ze = 56`). Left padding before the first
 // candle; right margin reserved for the price-axis label column.
@@ -294,10 +308,12 @@ function onChartKeydown(e) {
 
 onMounted(() => {
   window.addEventListener("keydown", onChartKeydown);
+  window.addEventListener("keydown", onChartEsc);
   document.addEventListener("click", closeChartContextMenu);
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onChartKeydown);
+  window.removeEventListener("keydown", onChartEsc);
   document.removeEventListener("click", closeChartContextMenu);
 });
 
@@ -674,6 +690,27 @@ const auditMeta = computed(() => ({
   n_rescue:       auditScreening.n_rescue_candidates ?? 0,
   fee:            auditScreening.fee_round_trip_pct ?? 1.5,
 }));
+
+// Headline-honesty state for the audit panel. Previously the headline
+// said "X archetypes evaluated on {{symbol}}" via raw interpolation,
+// which is literally false for tokens like HYPE that ARE in the static
+// universe but had insufficient Kraken history (<250 daily bars) when
+// the audit ran — every per_token row is {n: 0, skipped: 'no_kraken'},
+// so nothing was actually evaluated on that token. Three states:
+//   with-trades             — ≥1 archetype actually fired on this token
+//   in-universe-no-trades   — token IS in universe but every row n=0
+//                             (skip reason populated; new tokens, alts)
+//   out-of-universe         — tokenAuditRows.length === 0 (panel v-if
+//                             already hides; here for future-proofing
+//                             if the gating logic changes)
+const auditTokenFiredCount = computed(() =>
+  tokenAuditRows.value.filter(r => (r.token_n ?? 0) > 0).length
+);
+const auditTokenState = computed(() => {
+  if (!tokenAuditRows.value.length) return "out-of-universe";
+  if (auditTokenFiredCount.value > 0) return "with-trades";
+  return "in-universe-no-trades";
+});
 
 // CathodeGrid column definitions — translate the audit-row shape into
 // cathode's ColDef[] format. Right-aligned numeric columns; value
@@ -1546,6 +1583,13 @@ const trendBadgeClass = computed(() => {
                 >
                   ⚙ Display
                 </button>
+                <button
+                  @click="chartExpanded = true"
+                  class="px-2 py-1 rounded-md text-[11px] font-medium bg-white/90 backdrop-blur text-gray-700 border border-gray-300 shadow-sm hover:bg-white transition"
+                  title="Expand chart to fullscreen (ESC to close)"
+                >
+                  ⛶ Expand
+                </button>
               </div>
 
               <!-- Hold-period highlight band: semi-transparent vertical strip
@@ -1578,6 +1622,74 @@ const trendBadgeClass = computed(() => {
             Candles + SMA(200) overlay from <a href="https://www.npmjs.com/package/@stratchai/cathode" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/cathode</a>. Hover to see OHLC. The lens follows your cursor.
           </p>
         </div>
+
+        <!-- Fullscreen expand modal — teleported to body so it escapes
+             the verdict card's overflow/positioning context. Renders a
+             second CathodeCandle with the same candles/overlays/markers
+             but at viewport-fill size and a wider slot-w for readability.
+             Inline overlays (band + drop-lines) intentionally NOT
+             duplicated for v1 — they're tied to chartContainerRef's pixel
+             geometry; the modal's value is the raw cathode render with
+             entry/exit triangles cathode draws natively from markers
+             prop. Watermark duplicated so the @stratchai/cathode brand
+             stays in every screenshot. -->
+        <Teleport to="body">
+          <div
+            v-if="chartExpanded && result?.chart?.candles?.length"
+            class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+            @click.self="chartExpanded = false"
+          >
+            <div class="relative w-full h-full max-w-[1600px] max-h-[900px] bg-white rounded-xl shadow-2xl flex flex-col">
+              <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200">
+                <div class="flex items-center gap-3">
+                  <span class="text-sm font-bold text-gray-900">{{ result.symbol }} — expanded view</span>
+                  <span v-if="result.forward_look && !result.forward_look.status" class="text-xs text-gray-600 font-mono">
+                    {{ result.forward_look.entry_date }} @ ${{ result.forward_look.entry_price }}
+                    →
+                    {{ result.forward_look.exit_date }} @ ${{ result.forward_look.exit_price }}
+                    ({{ result.forward_look.reason }})
+                  </span>
+                </div>
+                <button
+                  @click="chartExpanded = false"
+                  class="px-2 py-1 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition"
+                  title="Close (ESC)"
+                >
+                  ✕ Close
+                </button>
+              </div>
+              <div :class="['relative flex-1 rounded-b-xl overflow-hidden', chartContainerBg]">
+                <CathodeCandle
+                  :key="`cc-expanded-${flat}`"
+                  :candles="result.chart.candles"
+                  :overlays="chartOverlays"
+                  :markers="chartMarkers"
+                  :theme="chartTheme"
+                  :flat="flat"
+                  :compact="false"
+                  :curvature="curvature"
+                  :scanlines="scanlines"
+                  :glow="glow"
+                  :magnify="magnify"
+                  :slot-w="10"
+                />
+                <a href="https://www.npmjs.com/package/@stratchai/cathode"
+                   target="_blank" rel="noopener"
+                   class="absolute top-2 left-2 z-20 pointer-events-auto
+                          flex items-center gap-1 px-1.5 py-0.5 rounded
+                          text-[10px] font-mono
+                          bg-black/40 text-emerald-300 hover:text-emerald-200
+                          border border-emerald-400/40 hover:border-emerald-300/70
+                          backdrop-blur-sm shadow-sm
+                          no-underline transition"
+                   title="Chart powered by @stratchai/cathode — click to view on npm">
+                  <span class="text-emerald-400">⚡</span>
+                  <span>@stratchai/cathode</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </Teleport>
 
         <!-- Verdict tree: structured walk-forward survivor gate -->
         <div v-if="result.gate?.length" class="px-6 py-5 border-b border-gray-100">
@@ -1703,8 +1815,19 @@ const trendBadgeClass = computed(() => {
           >
             <div class="flex items-center gap-3">
               <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Audit transparency</span>
-              <span class="text-sm text-slate-700">
-                <strong>{{ auditMeta.n_archetypes }}</strong> shelved daily-crypto archetypes evaluated on {{ result.symbol }}
+              <span v-if="auditTokenState === 'with-trades'" class="text-sm text-slate-700">
+                <strong>{{ auditMeta.n_archetypes }}</strong> shelved daily-crypto archetypes —
+                <strong>{{ auditTokenFiredCount }}</strong> fired on {{ result.symbol }} in the
+                {{ auditMeta.scanned_at }} CMC top-30 audit
+              </span>
+              <span v-else-if="auditTokenState === 'in-universe-no-trades'" class="text-sm text-slate-700">
+                <strong>{{ auditMeta.n_archetypes }}</strong> shelved daily-crypto archetypes from the
+                {{ auditMeta.scanned_at }} CMC top-30 audit — {{ result.symbol }} was in scope but had
+                insufficient Kraken history (&lt;250 daily bars) to backtest
+              </span>
+              <span v-else class="text-sm text-slate-700">
+                <strong>{{ auditMeta.n_archetypes }}</strong> shelved daily-crypto archetypes —
+                {{ result.symbol }} was not in the CMC top-30 universe at audit time
               </span>
               <span v-if="auditMeta.n_rescue > 0"
                     class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
@@ -1725,11 +1848,12 @@ const trendBadgeClass = computed(() => {
                  timestamped JSON. -->
             <div class="bg-amber-50 border border-amber-200 rounded-md p-3 mb-3 text-xs text-amber-900 leading-relaxed">
               <strong>Snapshot, not live evaluation.</strong> These numbers come from a single walk-forward audit
-              run on <span class="font-mono">{{ auditMeta.scanned_at }}</span> — 46 shelved daily-crypto
+              run on <span class="font-mono">{{ auditMeta.scanned_at }}</span> — {{ auditMeta.n_archetypes }} shelved daily-crypto
               archetypes evaluated across {{ auditMeta.universe_size }} CMC top-30 symbols at
               {{ auditMeta.fee }}% real round-trip fees on Kraken 720-bar history. The "on {{ result.symbol }}"
-              columns show that snapshot's per-token slice; the "pooled" columns show the universe-wide
-              aggregate. Re-running for fresh numbers requires
+              columns reflect that snapshot's slice; em-dashes mean the archetype didn't fire on
+              {{ result.symbol }} in the snapshot run. The "pooled" columns show the universe-wide aggregate.
+              Re-running for fresh numbers requires
               <span class="font-mono">scripts/screen_audit_universe.js</span> sigma-side.
             </div>
 
