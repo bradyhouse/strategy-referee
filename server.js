@@ -42,5 +42,5 @@ if (existsSync(distDir)) {
 
 app.listen(PORT, () => {
   console.log(`[strategy-referee] API + static server listening on http://localhost:${PORT}`);
-  console.log(`[strategy-referee] In dev, run \`npm run dev:web\` in another terminal for hot-reload UI on :5173`);
+  console.log(`[strategy-referee] In dev, run \`npm run dev:web\` in another terminal for hot-reload UI on :4173`);
 });
