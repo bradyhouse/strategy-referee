@@ -11,10 +11,12 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Verdict views — visual smokes", () => {
-  test("PASS verdict on form defaults (TON 2026-05-24)", async ({ page }) => {
+  test("PASS verdict on form defaults (ETH 2025-09-28)", async ({ page }) => {
     await page.goto("/");
-    // Form defaults to TON / 2026-05-24 — first-click demo. No preset
-    // click needed; just hit Evaluate.
+    // Form defaults to ETH / 2025-09-28 — first-click demo. No preset
+    // click needed; just hit Evaluate. (TON was the default until
+    // 2026-06-18 when CMC rebranded Toncoin → Gram and broke the
+    // symbol=TON lookup; ETH is canonical / non-rebrand-prone.)
     await page.getByRole("button", { name: /^Evaluate$/ }).click();
     // Wait for the verdict card to land + the auto-pin sequence to finish
     // (1500ms retry + a bit of cathode shader warm-up time).
@@ -31,7 +33,7 @@ test.describe("Verdict views — visual smokes", () => {
     // without it would misread as a buy signal)
     await expect(page.getByText("What PASS actually means")).toBeVisible();
 
-    await page.screenshot({ path: "tests/e2e/screenshots/pass-ton-full.png", fullPage: true });
+    await page.screenshot({ path: "tests/e2e/screenshots/pass-eth-full.png", fullPage: true });
 
     // CMC integration must be visible — TradingView-equivalent demo-theater
     // value for the "Best CMC Data Use" prize angle. If these vanish, judges
@@ -43,7 +45,7 @@ test.describe("Verdict views — visual smokes", () => {
     await expect(logo).toBeVisible();
   });
 
-  test("TON chart region — entry/exit prices in chart legend bar", async ({ page }) => {
+  test("ETH chart region — entry/exit prices in chart legend bar", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();
     await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
@@ -58,17 +60,17 @@ test.describe("Verdict views — visual smokes", () => {
     const legendBox = await chartLegendBar.boundingBox();
     const cropY = legendBox ? Math.max(0, legendBox.y - 16) : 600;
     await page.screenshot({
-      path: "tests/e2e/screenshots/pass-ton-chart.png",
+      path: "tests/e2e/screenshots/pass-eth-chart.png",
       clip: { x: 0, y: cropY, width: 1440, height: 480 },
     });
 
     // Entry + exit prices live in the chart legend bar above the canvas
     // (in-chart chips were removed — they crowded the triangles). Legend
-    // pill text is "— <date> @ <price>" for each side. TON 2026-05-24 is
-    // the form's default; entry $1.76 → TP exit $2.10 is the canonical
-    // PASS-on-defaults demo.
-    await expect(page.locator("text=/2026-05-24 @ \\$1\\.76/").first()).toBeVisible();
-    await expect(page.locator("text=/2026-06-01 @ \\$2\\.10/").first()).toBeVisible();
+    // pill text is "— <date> @ <price>" for each side. ETH 2025-09-28 is
+    // the form's default; entry $4145.33 → PROFIT_FLOOR exit $4688.96 on
+    // 2025-10-06 is the canonical PASS-on-defaults demo.
+    await expect(page.locator("text=/2025-09-28 @ \\$4145\\.33/").first()).toBeVisible();
+    await expect(page.locator("text=/2025-10-06 @ \\$4688\\.96/").first()).toBeVisible();
 
     // TradingView-style cathode branding watermark — small clickable badge
     // top-left of every chart. Direct showcase value for the @stratchai/*
@@ -81,14 +83,15 @@ test.describe("Verdict views — visual smokes", () => {
   });
 
   // BCH is the MFI-triggered variant case + a different chart range than
-  // TON. Together with the TON test above we cover both archetypes and
-  // both ends of the price range — high-value $-prices (BCH ~$561) and
-  // low-value $-prices (TON ~$2).
+  // ETH. Together with the ETH test above we cover both archetypes and
+  // both ends of the price range — mid-value $-prices (BCH ~$600) and
+  // high-value $-prices (ETH ~$4145).
   test("BCH chart — MFI-triggered archetype, distinct price range", async ({ page }) => {
     await page.goto("/");
     // BCH isn't a preset chip — the recent BCH PASSes (Jan 2026) had losing
-    // forward-look outcomes, so the chips show TON winners + historical ETH.
-    // BCH remains a valid manual entry for archetype coverage.
+    // forward-look outcomes, so the chips show only PROFIT_FLOOR winners
+    // (BTC + SOL @ 2025-09-26). BCH remains a valid manual entry for
+    // archetype coverage (MFI-triggered + SL forward-look).
     await page.getByPlaceholder(/BTC|ETH/).fill("BCH");
     await page.locator('input[type="date"]').fill("2026-01-27");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();
@@ -114,7 +117,7 @@ test.describe("Verdict views — visual smokes", () => {
 
   test("REJECT verdict on bare BTC — rejection-as-feature framing", async ({ page }) => {
     await page.goto("/");
-    // Form defaults are TON / 2026-05-24. To get BARE BTC live eval, we
+    // Form defaults are ETH / 2025-09-28. To get BARE BTC live eval, we
     // overwrite the token AND clear the date. Real-time bare BTC should
     // REJECT for BELOW_SMA200 in current market conditions.
     await page.getByPlaceholder(/BTC|ETH/).fill("BTC");
@@ -135,34 +138,35 @@ test.describe("Verdict views — visual smokes", () => {
     await page.goto("/");
     const dateInput = page.locator('input[type="date"]');
 
-    // Single mode default: 2026-05-24 (the TON PASS demo)
-    await expect(dateInput).toHaveValue("2026-05-24");
+    // Single mode default: 2025-09-28 (the ETH PASS demo)
+    await expect(dateInput).toHaveValue("2025-09-28");
 
     // Switch to Watchlist → auto-prefill sets 2025-09-25 (historical 3-PASS demo)
     await page.getByRole("button", { name: /^Watchlist$/ }).click();
     await expect(dateInput).toHaveValue("2025-09-25");
 
-    // Switch BACK to Single → must restore 2026-05-24, NOT inherit 2025-09-25
+    // Switch BACK to Single → must restore 2025-09-28, NOT inherit 2025-09-25
     // (the canonical bug this fix addresses).
     await page.getByRole("button", { name: /^Single token$/ }).click();
-    await expect(dateInput).toHaveValue("2026-05-24");
+    await expect(dateInput).toHaveValue("2025-09-28");
 
     // Customize the single-mode date — should persist across a Watchlist
     // round-trip without overwriting the watchlist's own date.
-    await dateInput.fill("2025-09-25");
-    await expect(dateInput).toHaveValue("2025-09-25");
+    await dateInput.fill("2025-09-26");
+    await expect(dateInput).toHaveValue("2025-09-26");
     await page.getByRole("button", { name: /^Watchlist$/ }).click();
     await expect(dateInput).toHaveValue("2025-09-25");  // watchlist's own date
     await page.getByRole("button", { name: /^Single token$/ }).click();
-    await expect(dateInput).toHaveValue("2025-09-25");  // single's customized date
+    await expect(dateInput).toHaveValue("2025-09-26");  // single's customized date
   });
 
   test("Watchlist mode auto-pre-fills with historical 3-PASS demo on first switch", async ({ page }) => {
     await page.goto("/");
     // Switch to Watchlist mode. The auto-pre-fill should set both the
     // token list AND the date to the historical multi-PASS demo so the
-    // first Scan click produces meaningful results — NOT 6 REJECTs from
-    // the inherited TON / 2026-05-24 single-mode defaults.
+    // first Scan click produces meaningful results — NOT REJECTs from
+    // the inherited ETH / 2025-09-28 single-mode defaults bleeding into
+    // watchlist mode.
     await page.getByRole("button", { name: /^Watchlist$/ }).click();
 
     // Date input should now show 2025-09-25

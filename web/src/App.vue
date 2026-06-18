@@ -318,20 +318,22 @@ watch(methodologyExpanded, (v) => {
 });
 
 // Single-token state
-// Defaults pre-fill to TON / 2026-05-24, the strongest current PASS (TP
-// +17.26% in 8 days). The first "Evaluate" click — by a hackathon judge
-// who doesn't notice the preset chips — still produces a clean PASS
-// demo with full forward-look + spec emission. Power users clear the
-// date to get real-time evaluation (the placeholder hint surfaces once
-// the field goes blank).
-const token = ref("TON");
+// Defaults pre-fill to ETH / 2025-09-28, a clean PROFIT_FLOOR +11.61%
+// PASS over 8 days. The first "Evaluate" click — by a hackathon judge
+// who doesn't notice the preset chips — produces a PASS demo with full
+// forward-look + spec emission. ETH is canonical/unambiguous on CMC so
+// the lookup can't regress the way TON did (Toncoin was rebranded
+// server-side to "Gram" / symbol GRAM, breaking the symbol=TON query).
+// Power users clear the date to get real-time evaluation (the placeholder
+// hint surfaces once the field goes blank).
+const token = ref("ETH");
 // Per-mode date state. The shared date input renders ONE field in the
 // mode bar, but each mode tracks its own preferred date so switching
 // modes doesn't pollute the other's default. Without this, the watchlist
-// auto-prefill (2025-09-25) leaked into single-mode after a Watchlist
-// click → Single switch → user saw TON / 2025-09-25 (REJECT) instead of
-// TON / 2026-05-24 (PASS).
-const singleAtDate    = ref("2026-05-24");
+// auto-prefill (2025-09-25) would leak into single-mode after a Watchlist
+// click → Single switch. Single-default 2025-09-28 ≠ watchlist-default
+// 2025-09-25, so the per-mode isolation is observable.
+const singleAtDate    = ref("2025-09-28");
 const watchlistAtDate = ref("");
 const atDate = computed({
   get() { return mode.value === "single" ? singleAtDate.value : watchlistAtDate.value; },
@@ -387,28 +389,28 @@ const watchlistLoading = ref(false);
 const watchlistResults = ref(null);
 const watchlistError = ref(null);
 
-// Presets sourced from scripts/find_current_pass.js — a 30-token Kraken
-// universe scanned over the last 180 days. Out of ~5,400 token-days
-// evaluated only 9 produced PASS verdicts (~0.17%), which is the
-// anti-hype thesis empirically demonstrated. Three of those are surfaced
-// here as guaranteed-PASS guided-demo entry points; re-run the scan and
-// refresh this list as time passes.
-// Three guaranteed-PASS presets, each with a clean profitable forward-look.
-// Scan results (scripts/find_current_pass.js + per-PASS forward-look check):
-//   TON 2026-05-24 → TP        +17.26%  (best recent winner)
-//   TON 2026-05-22 → PROFIT_FLOOR +12.73%  (clean modal-win exit)
-//   ETH 2025-09-25 → PROFIT_FLOOR +12.32%  (historical, kept for token variety)
-// Out of 9 recent PASSes scanned across 180 days, 3 produced clean wins and
-// 6 produced losers (~33% near-term win rate vs 62% audit baseline on n=29 —
-// small-sample noise but directionally consistent). The disclosure callout
-// surfaces this reality; presets show the wins for demo first-impression.
-// Preset chips show OTHER winning examples. TON 5/24 is the form default
-// (first-click demo) so it's not duplicated here; the chips give 3
-// additional clean wins for users who want to explore variety.
+// Presets sourced from a brute-force sweep across the 28-symbol Kraken
+// canonical-name universe (BTC/ETH/SOL/...) over the last 365 days.
+// 27 profitable PASSes surfaced; the two below are the most household-
+// recognizable wins to anchor the chip-set narrative ("late-September
+// 2025 oversold dip caught across canonical majors"). Re-run the sweep
+// in scripts/find_current_pass.js + verify via the full evaluator
+// (evaluateTokenWithQuote) as time passes; scanner PASSes don't always
+// match evaluator PASSes once forward-look is computed.
+//
+// Chips surfaced: BTC 9/26 (PROFIT_FLOOR +9.94%) and SOL 9/26
+// (PROFIT_FLOOR +12.93%). Form default ETH 2025-09-28 (PROFIT_FLOOR
+// +11.61%) is the first-click demo and is NOT duplicated as a chip.
+//
+// TON chips removed 2026-06-18: CoinMarketCap rebranded Toncoin
+// (id=11419) to "Gram" / symbol GRAM. The symbol=TON query now silently
+// matches "AT&T Tokenized Stock (Ondo)" (id=39249, symbol="Ton") and
+// the evaluator's case-sensitive `quotes["TON"]` lookup misses CMC's
+// returned key "Ton" → TOKEN_NOT_FOUND_ON_CMC REJECT. Permanent until
+// the evaluator gains slug/id-based resolution.
 const presets = [
-  { label: "TON · 2026-05-23 (TP +14%)",        token: "TON", atDate: "2026-05-23" },
-  { label: "TON · 2026-05-22 (PROFIT_FLOOR)",   token: "TON", atDate: "2026-05-22" },
-  { label: "ETH · 2025-09-25 (historical)",     token: "ETH", atDate: "2025-09-25" },
+  { label: "BTC · 2025-09-26 (PROFIT_FLOOR +9.94%)", token: "BTC", atDate: "2025-09-26" },
+  { label: "SOL · 2025-09-26 (PROFIT_FLOOR +12.93%)", token: "SOL", atDate: "2025-09-26" },
 ];
 
 // "CMC top 30 today" is dynamic — loaded from /api/universe on demand. The
@@ -525,10 +527,10 @@ function drillIn(row) {
 // Tracks whether the user has visited watchlist mode at least once. The
 // first visit auto-pre-fills the watchlist inputs with the proven
 // 3-PASS historical demo (Crypto majors @ 2025-09-25), the same UX
-// principle as the single-mode TON / 2026-05-24 defaults. Without this
-// the user would inherit atDate=2026-05-24 from single mode and every
-// major in the default watchlist would REJECT (only TON passed on
-// that date) — looking like the tool is broken.
+// principle as the single-mode ETH / 2025-09-28 defaults. Without this
+// the user would inherit single-mode's date in watchlist mode, and the
+// major-token list may not all hit on that specific date — looking
+// like the tool is broken.
 const watchlistInitialized = ref(false);
 
 function switchMode(newMode) {

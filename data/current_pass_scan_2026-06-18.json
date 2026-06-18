@@ -1,0 +1,137 @@
+{
+  "scanned_at": "2026-06-18T12:23:18.751Z",
+  "universe_size": 30,
+  "days_scanned": 365,
+  "hits": [
+    {
+      "symbol": "TON",
+      "asOfDate": "2026-05-25",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 1.94,
+        "rsi": 30.1,
+        "mfi": 41.11,
+        "sma200": 1.55,
+        "sma_distance_pct": 24.59,
+        "bars_used": 592
+      }
+    },
+    {
+      "symbol": "TON",
+      "asOfDate": "2026-05-24",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 1.76,
+        "rsi": 17.89,
+        "mfi": 27.08,
+        "sma200": 1.55,
+        "sma_distance_pct": 13.51,
+        "bars_used": 591
+      }
+    },
+    {
+      "symbol": "TON",
+      "asOfDate": "2026-05-23",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 1.82,
+        "rsi": 22.32,
+        "mfi": 23.96,
+        "sma200": 1.56,
+        "sma_distance_pct": 16.98,
+        "bars_used": 590
+      }
+    },
+    {
+      "symbol": "TON",
+      "asOfDate": "2026-05-22",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 1.83,
+        "rsi": 21.05,
+        "mfi": 22.42,
+        "sma200": 1.56,
+        "sma_distance_pct": 17.91,
+        "bars_used": 589
+      }
+    },
+    {
+      "symbol": "TON",
+      "asOfDate": "2026-05-21",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 2.07,
+        "rsi": 21.58,
+        "mfi": 19.49,
+        "sma200": 1.56,
+        "sma_distance_pct": 32.88,
+        "bars_used": 588
+      }
+    },
+    {
+      "symbol": "BCH",
+      "asOfDate": "2026-01-27",
+      "archetype": "mfi_oversold",
+      "signals": {
+        "close": 599.13,
+        "rsi": 43.75,
+        "mfi": 18.38,
+        "sma200": 561.09,
+        "sma_distance_pct": 6.78,
+        "bars_used": 578
+      }
+    },
+    {
+      "symbol": "BCH",
+      "asOfDate": "2026-01-24",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 592.65,
+        "rsi": 30.15,
+        "mfi": 18.87,
+        "sma200": 560.17,
+        "sma_distance_pct": 5.8,
+        "bars_used": 575
+      }
+    },
+    {
+      "symbol": "BCH",
+      "asOfDate": "2026-01-18",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 590.89,
+        "rsi": 28.91,
+        "mfi": 31.86,
+        "sma200": 557.34,
+        "sma_distance_pct": 6.02,
+        "bars_used": 569
+      }
+    },
+    {
+      "symbol": "BCH",
+      "asOfDate": "2026-01-17",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 593.9,
+        "rsi": 26.11,
+        "mfi": 39.28,
+        "sma200": 556.93,
+        "sma_distance_pct": 6.64,
+        "bars_used": 568
+      }
+    },
+    {
+      "symbol": "SOL",
+      "asOfDate": "2025-10-16",
+      "archetype": "rsi_oversold",
+      "signals": {
+        "close": 184.86,
+        "rsi": 31.98,
+        "mfi": 37.03,
+        "sma200": 173.7,
+        "sma_distance_pct": 6.43,
+        "bars_used": 475
+      }
+    }
+  ]
+}
