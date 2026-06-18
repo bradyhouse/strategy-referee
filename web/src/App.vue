@@ -1829,7 +1829,15 @@ const trendBadgeClass = computed(() => {
                 <strong>{{ auditMeta.n_archetypes }}</strong> shelved daily-crypto archetypes —
                 {{ result.symbol }} was not in the CMC top-30 universe at audit time
               </span>
-              <span v-if="auditMeta.n_rescue > 0"
+              <!-- Rescue badge only shows when at least one archetype actually
+                   fired on this token. RESCUE is a universe-wide definition
+                   (pooled mean > 0, n ≥ 10 across the 29-symbol universe), so
+                   on tokens like HYPE that were in scope but had insufficient
+                   Kraken history to backtest, the badge would imply per-token
+                   substance it doesn't have. The rescue candidates are still
+                   discoverable when the table expands (pinned to top of grid)
+                   for any user who wants the universe-wide view. -->
+              <span v-if="auditMeta.n_rescue > 0 && auditTokenState === 'with-trades'"
                     class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
                 ⚡ {{ auditMeta.n_rescue }} rescue candidate{{ auditMeta.n_rescue === 1 ? "" : "s" }}
               </span>
