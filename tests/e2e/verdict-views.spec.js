@@ -338,4 +338,29 @@ test.describe("Verdict views — visual smokes", () => {
 
     await page.screenshot({ path: "tests/e2e/screenshots/pin-lens-toolbar-hover.png", fullPage: true });
   });
+
+  test("Expanded view — pin lens toggle mirrors inline + cycles", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
+    await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).first().waitFor({ timeout: 5000 });
+    await page.waitForTimeout(2500);
+
+    // Open the fullscreen modal. Inline lens is auto-pinned, so the modal
+    // mirrors it: its own Pin button reads "Lens pinned".
+    await page.getByRole("button", { name: /⛶ Expand/ }).click();
+    await page.waitForTimeout(2800);
+    const modal = page.locator(".fixed.inset-0.z-50");
+    const modalPin = modal.getByRole("button", { name: /Lens pinned|Pin lens/ });
+    await expect(modalPin).toContainText("Lens pinned");
+
+    // Toggle off → on, confirming the modal has independent pin control.
+    await modalPin.click();
+    await expect(modalPin).toContainText("Pin lens");
+    await modalPin.click();
+    await expect(modalPin).toContainText("Lens pinned");
+
+    // ESC closes the modal.
+    await page.keyboard.press("Escape");
+    await expect(modal).toHaveCount(0);
+  });
 });

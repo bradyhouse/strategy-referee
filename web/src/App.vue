@@ -137,12 +137,25 @@ function detachPinBlockers(canvas) {
   }
 }
 
+// Release a pinned lens AND clear it immediately. Detaching the blockers alone
+// leaves the frozen lens lingering on-screen until the cursor next crosses the
+// canvas (cathode only resets the lens on a leave event). So after detaching,
+// dispatch the leave events ourselves — cathode's handler resets the lens to
+// its off-screen sentinel and re-renders, so the lens disappears the instant
+// the user clicks Unpin. Blockers are already off, so these reach cathode.
+function releaseLens(canvas) {
+  detachPinBlockers(canvas);
+  for (const type of ["mouseout", "mouseleave", "pointerout", "pointerleave"]) {
+    canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+  }
+}
+
 function togglePinLens() {
   if (!chartContainerRef.value) return;
   const canvas = chartContainerRef.value.querySelector("canvas");
   if (!canvas) return;
   if (lensFrozen.value) {
-    detachPinBlockers(canvas);
+    releaseLens(canvas);
     lensFrozen.value = false;
     return;
   }
@@ -256,6 +269,24 @@ function pinLensAtTrade() {
 function pinExpandedLens() {
   if (expandedLensFrozen.value) return;
   if (positionLensAtTrade(expandedChartRef.value)) expandedLensFrozen.value = true;
+}
+
+// Pin/unpin toggle for the fullscreen modal's own lens — the modal's equivalent
+// of togglePinLens(). Unpin detaches the modal canvas's blockers (lens then
+// follows the cursor on hover); pin re-positions on the trade midpoint and
+// freezes. Operates on expandedChartRef / expandedLensFrozen, independent of
+// the inline chart.
+function toggleExpandedPin() {
+  const container = expandedChartRef.value;
+  if (!container) return;
+  const canvas = container.querySelector("canvas");
+  if (!canvas) return;
+  if (expandedLensFrozen.value) {
+    releaseLens(canvas);
+    expandedLensFrozen.value = false;
+    return;
+  }
+  if (positionLensAtTrade(container)) expandedLensFrozen.value = true;
 }
 function closeChartContextMenu() { chartContextMenu.value = null; }
 function toggleWebGL()      { flat.value      = !flat.value;      saveVisualPrefs(); }
@@ -1691,13 +1722,28 @@ const trendBadgeClass = computed(() => {
                     ({{ result.forward_look.reason }})
                   </span>
                 </div>
-                <button
-                  @click="chartExpanded = false"
-                  class="px-2 py-1 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition"
-                  title="Close (ESC)"
-                >
-                  ✕ Close
-                </button>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="magnify"
+                    @click="toggleExpandedPin"
+                    :class="[
+                      'px-2 py-1 rounded-md text-[11px] font-medium border shadow-sm transition',
+                      expandedLensFrozen
+                        ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+                    ]"
+                    :title="expandedLensFrozen ? 'Click to release the lens (follows cursor on hover)' : 'Pin the magnify lens on the trade'"
+                  >
+                    {{ expandedLensFrozen ? "🔒 Lens pinned" : "📍 Pin lens" }}
+                  </button>
+                  <button
+                    @click="chartExpanded = false"
+                    class="px-2 py-1 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition"
+                    title="Close (ESC)"
+                  >
+                    ✕ Close
+                  </button>
+                </div>
               </div>
               <div ref="expandedChartRef" :class="['relative flex-1 rounded-b-xl overflow-hidden', chartContainerBg]">
                 <CathodeCandle
