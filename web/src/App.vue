@@ -104,25 +104,6 @@ function blockMousemove(e) {
   e.stopPropagation();
 }
 
-// Auto-pin on first paint — the demo flow is "look at a trade," so the lens
-// should land on the entry candle and STAY there without the user having
-// to know about the Pin Lens button. Called from the result-watch after
-// focusMagnifyAtEntry seeds the lens. Idempotent: no-ops if already pinned,
-// or if the verdict has no entry to pin to.
-function pinLensAtEntry() {
-  if (lensFrozen.value) return;
-  if (!magnify.value) return;
-  const container = chartContainerRef.value;
-  if (!container) return;
-  const canvas = container.querySelector("canvas");
-  if (!canvas) return;
-  const r = result.value;
-  if (!r?.chart?.candles?.length || !r.forward_look || r.forward_look.status) return;
-
-  attachPinBlockers(canvas);
-  lensFrozen.value = true;
-}
-
 // Cathode wires several interactions to the canvas — any of them can move
 // the lens, clear it, OR change the chart's scroll/zoom state. To keep
 // the lens pinned AND the chart view frozen we block them all at capture
@@ -197,13 +178,11 @@ const chartContainerBg = computed(() => {
     : "bg-black border-gray-200";
 });
 
-// Ref on the chart container so we can find the canvas element and
-// dispatch a synthetic mouse event to seed the magnify lens at the
-// entry marker on first paint. Cathode wires its hover/magnify
-// handler as `onMousemove` directly on the canvas element (verified
-// in cathode dist) — there's no imperative API. The seeded lens
-// persists until the user moves their real mouse onto the canvas,
-// at which point the natural hover-to-magnify UX takes over.
+// Ref on the chart container so togglePinLens() can find the canvas element
+// to dispatch synthetic mouse events (pin the lens at the last hover position)
+// and attach/detach the pin blockers. Cathode wires its hover/magnify handler
+// as `onMousemove` directly on the canvas element (verified in cathode dist) —
+// there's no imperative API.
 const chartContainerRef = ref(null);
 
 // Fullscreen expand state for the chart. The inline chart is fixed at
@@ -220,56 +199,8 @@ function onChartEsc(e) {
   if (e.key === "Escape" && chartExpanded.value) chartExpanded.value = false;
 }
 
-// Cathode chart layout constants (lifted from cathode dist;
-// confirmed at `Ve = 8, Ze = 56`). Left padding before the first
-// candle; right margin reserved for the price-axis label column.
-// Candle x in canvas-local coords = Ve + (idx - firstIdx + 0.5) * slotW.
-const CC_LEFT_PAD = 8;
-const CC_RIGHT_AXIS_W = 56;
-const CC_SLOT_W = 6;     // must match the :slot-w prop on <CathodeCandle>
-
-function focusMagnifyAtEntry() {
-  if (!magnify.value) return;
-  const r = result.value;
-  if (!r?.chart?.candles?.length || !r.forward_look || r.forward_look.status) return;
-  const container = chartContainerRef.value;
-  if (!container) return;
-  const canvas = container.querySelector("canvas");
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width < 50 || rect.height < 50) return;  // not laid out yet
-
-  const candles = r.chart.candles;
-  const entryMs = Date.parse(r.forward_look.entry_date + "T00:00:00Z");
-  let entryIdx = -1;
-  for (let i = 0; i < candles.length; i++) {
-    if (candles[i].start >= entryMs) { entryIdx = i; break; }
-  }
-  if (entryIdx < 0) return;
-
-  // Match cathode's `dl()` layout math so the seed lands on the entry
-  // candle, not 150px to the right of it (the previous linear-time
-  // interpolation was wrong for cathode's fixed-slotW layout).
-  const plotW = Math.max(1, rect.width - CC_LEFT_PAD - CC_RIGHT_AXIS_W);
-  const maxFit = Math.max(1, Math.floor(plotW / CC_SLOT_W));
-  const count = Math.min(maxFit, candles.length);
-  const firstIdx = Math.max(0, candles.length - count);
-  const xLocal = CC_LEFT_PAD + (entryIdx - firstIdx + 0.5) * CC_SLOT_W;
-  const x = rect.left + xLocal;
-  const y = rect.top + rect.height * 0.45;
-
-  // mouseenter+mouseover prime the canvas so any prior leave-cleared
-  // state resets; mousemove triggers cathode's `ce` handler which
-  // sets both the magnify-lens position and the crosshair/inspector.
-  for (const type of ["mouseenter", "mouseover", "mousemove"]) {
-    canvas.dispatchEvent(new MouseEvent(type, {
-      clientX: x, clientY: y, bubbles: true, cancelable: true,
-    }));
-  }
-}
-
-// Note: the `watch(result, …)` that seeds the magnify lens at the entry
-// marker is registered AFTER `result` is declared lower in this file
+// Note: the `watch(result, …)` that resets the lens to unpinned on each new
+// result is registered AFTER `result` is declared lower in this file
 // (search "watch-result-magnify"). Vue allows watch() anywhere in
 // <script setup>, but the ref it watches must already exist at the
 // time the watch line executes — otherwise TDZ.
@@ -374,29 +305,24 @@ const maxAtDate = computed(() => {
   return d.toISOString().slice(0, 10);
 });
 
-// watch-result-magnify: after the chart renders, seed the magnify lens at
-// the entry marker AND auto-pin it there. The demo flow is "look at a
-// trade" — defaulting to a pinned lens on the entry candle is what users
-// expect, and avoids forcing them to discover the Pin button. The
-// auto-pin runs once per result; if the user clicks "Unpin" to explore,
-// their unpinned state is respected until the next Evaluate / preset click.
+// watch-result-magnify: on each new result, reset the lens to UNPINNED so the
+// default view is the clean chart — both entry AND exit triangles, drop-lines,
+// and the hold-period band all fully visible.
 //
-// setTimeout > nextTick because cathode's three.js shader takes a moment
-// to warm up on first frame. Three seed retries cover the worst case
-// (first-load shader compile); the final retry also pins.
+// We used to auto-pin the magnify lens on the entry candle here ("look at a
+// trade" wow-factor). That actively HID the exit marker: the lens is a
+// circular magnifier centered on the entry, and the exit marker — which for a
+// PROFIT_FLOOR/TP exit sits near the top of the price range, far from the
+// entry-centered lens — got covered/displaced out of the lens and vanished.
+// Empirically confirmed 2026-06-18: magnify-off render shows both triangles;
+// auto-pinned-lens render shows only the entry. The lens cannot show both
+// markers when pinned on one, and a trade-analysis tool MUST show the exit.
+// Magnify still works on hover, and the "Pin lens (P)" button + Display menu
+// keep it discoverable for users who want to inspect candle detail.
 watch(result, async (r) => {
   if (!r) return;
-  // Reset pin state because the canvas has been replaced by Vue's re-render.
-  // The old canvas's blocker listener went with the old DOM node; pinLensAtEntry
-  // will attach a new one below.
-  lensFrozen.value = false;
+  lensFrozen.value = false;   // unpinned: no lens until the user hovers
   await nextTick();
-  setTimeout(focusMagnifyAtEntry, 250);
-  setTimeout(focusMagnifyAtEntry, 700);
-  setTimeout(() => {
-    focusMagnifyAtEntry();
-    pinLensAtEntry();
-  }, 1500);
 });
 
 // Watchlist state

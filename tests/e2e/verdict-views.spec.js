@@ -324,12 +324,16 @@ test.describe("Verdict views — visual smokes", () => {
     await pinButton.waitFor({ timeout: 5000 });
     await page.waitForTimeout(2500);
 
-    // The auto-pin should have fired — button should read "Lens pinned"
+    // The lens NO LONGER auto-pins on result (it was hiding the exit marker —
+    // the lens centers on the entry and covers/displaces the exit triangle).
+    // Default state is unpinned: button reads "Pin lens (P)". The user pins it
+    // manually for inspection. Click to pin, then verify it survives a toolbar
+    // hover (the historical bug: hovering Display fired mouseleave on the
+    // canvas, clearing the cathode lens).
+    await expect(pinButton).toContainText("Pin lens");
+    await pinButton.click();
     await expect(pinButton).toContainText("Lens pinned");
 
-    // Hover over the Display button (the historical bug: this triggered
-    // mouseleave on the canvas, which cleared the cathode lens). The pin
-    // button should remain "Lens pinned" through the hover.
     await page.getByRole("button", { name: /⚙ Display/ }).hover();
     await page.waitForTimeout(500);
     await expect(pinButton).toContainText("Lens pinned");
