@@ -162,6 +162,88 @@ function togglePinLens() {
   attachPinBlockers(canvas);
   lensFrozen.value = true;
 }
+
+// Auto-magnify the trade on each new result: pin the lens centered on the
+// MIDPOINT between the entry and exit markers (both X and price-Y).
+//
+// Why the midpoint and not the entry: cathode's lens is a WebGL fisheye
+// (radius ~250 device-px, 1.6x zoom) that displaces sampled content AWAY from
+// its center by the zoom factor. The old auto-pin centered on the entry at 45%
+// height, which pushed the exit marker — near the TOP of the range for a
+// TP/PROFIT_FLOOR exit — clean off the top edge, so it vanished (confirmed
+// empirically 2026-06-18 via headless render). Centering on the trade midpoint
+// keeps BOTH markers equidistant from center, so both stay inside the
+// magnified region AND on-screen, and it magnifies the whole entry→exit move —
+// a better "look at the trade" demo than the entry candle alone.
+//
+// Idempotent: no-ops if already pinned, magnify off, or canvas not laid out
+// yet (the watch(result) retries until the async cathode canvas mounts).
+function pinLensAtTrade() {
+  if (lensFrozen.value) return;
+  if (!magnify.value) return;
+  const container = chartContainerRef.value;
+  if (!container) return;
+  const canvas = container.querySelector("canvas");
+  if (!canvas) return;
+  const r = result.value;
+  if (!r?.chart?.candles?.length || !r.forward_look || r.forward_look.status) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 50 || rect.height < 50) return;  // not laid out yet
+
+  const candles = r.chart.candles;
+  const entryMs = Date.parse(r.forward_look.entry_date + "T00:00:00Z");
+  const exitMs  = Date.parse(r.forward_look.exit_date  + "T00:00:00Z");
+  let entryIdx = -1, exitIdx = -1;
+  for (let i = 0; i < candles.length; i++) {
+    if (entryIdx < 0 && candles[i].start >= entryMs) entryIdx = i;
+    if (exitIdx  < 0 && candles[i].start >= exitMs)  { exitIdx = i; break; }
+  }
+  if (entryIdx < 0 || exitIdx < 0) return;
+
+  // X: cathode's dl() right-anchored layout (Ve=8 left pad, Ze=56 right axis,
+  // slotW=6). Mirror it to find the candle-column centers, then average.
+  const plotW = Math.max(1, rect.width - CC_LEFT_PAD_PX - CC_RIGHT_AXIS_PX);
+  const maxFit = Math.max(1, Math.floor(plotW / CC_SLOT_W_PX));
+  const count = Math.min(maxFit, candles.length);
+  const firstIdx = Math.max(0, candles.length - count);
+  const midIdx = (entryIdx + exitIdx) / 2;
+  const xLocalCss = CC_LEFT_PAD_PX + (midIdx - firstIdx + 0.5) * CC_SLOT_W_PX;
+
+  // Y: cathode's hl() price-panel split + vl() range, computed in DEVICE px
+  // then scaled to CSS via the canvas's own device→css ratio (DPR-robust).
+  // Constants mirror cathode dist: top pad pt=8, volume-label band Xt=22,
+  // panel gap Dt=4, default volumeFraction=0.18, vl() range pad=4%. price→Y is
+  // affine, so the midpoint of the two prices maps to the midpoint of the two
+  // marker Ys.
+  const aDev = canvas.height;                       // device px
+  const innerDev = Math.max(1, aDev - 8 - 22 - 4);  // pt + Xt + Dt
+  const volHDev = Math.round(innerDev * 0.18);
+  const priceHDev = innerDev - volHDev;
+  const priceY0Dev = 8, priceY1Dev = 8 + priceHDev;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = firstIdx; i < Math.min(candles.length, firstIdx + count); i++) {
+    if (candles[i].low  < lo) lo = candles[i].low;
+    if (candles[i].high > hi) hi = candles[i].high;
+  }
+  const pad = (hi - lo) * 0.04;
+  const span = Math.max(1e-9, (hi + pad) - (lo - pad));
+  const midPrice = (r.forward_look.entry_price + r.forward_look.exit_price) / 2;
+  const yDev = priceY0Dev + (1 - (midPrice - (lo - pad)) / span) * (priceY1Dev - priceY0Dev);
+  const yLocalCss = yDev * (rect.height / aDev);
+
+  const x = rect.left + xLocalCss;
+  const y = rect.top + yLocalCss;
+
+  // mouseenter+mouseover prime the canvas (reset any prior leave-cleared
+  // state); mousemove triggers cathode's lens-position handler.
+  for (const type of ["mouseenter", "mouseover", "mousemove"]) {
+    canvas.dispatchEvent(new MouseEvent(type, {
+      clientX: x, clientY: y, bubbles: true, cancelable: true,
+    }));
+  }
+  attachPinBlockers(canvas);
+  lensFrozen.value = true;
+}
 function closeChartContextMenu() { chartContextMenu.value = null; }
 function toggleWebGL()      { flat.value      = !flat.value;      saveVisualPrefs(); }
 function toggleScanlines()  { scanlines.value = !scanlines.value; saveVisualPrefs(); }
@@ -199,8 +281,8 @@ function onChartEsc(e) {
   if (e.key === "Escape" && chartExpanded.value) chartExpanded.value = false;
 }
 
-// Note: the `watch(result, …)` that resets the lens to unpinned on each new
-// result is registered AFTER `result` is declared lower in this file
+// Note: the `watch(result, …)` that auto-pins the magnify lens on the trade
+// midpoint is registered AFTER `result` is declared lower in this file
 // (search "watch-result-magnify"). Vue allows watch() anywhere in
 // <script setup>, but the ref it watches must already exist at the
 // time the watch line executes — otherwise TDZ.
@@ -305,24 +387,24 @@ const maxAtDate = computed(() => {
   return d.toISOString().slice(0, 10);
 });
 
-// watch-result-magnify: on each new result, reset the lens to UNPINNED so the
-// default view is the clean chart — both entry AND exit triangles, drop-lines,
-// and the hold-period band all fully visible.
+// watch-result-magnify: after the chart renders, auto-pin the magnify lens on
+// the TRADE MIDPOINT (see pinLensAtTrade for why midpoint, not entry — the old
+// entry-centered pin pushed the exit marker off the top edge). The demo flow is
+// "look at a trade," so the lens lands on the entry→exit move and STAYS there
+// without the user having to discover the Pin button. If the user unpins to
+// explore, their choice is respected until the next Evaluate / preset click.
 //
-// We used to auto-pin the magnify lens on the entry candle here ("look at a
-// trade" wow-factor). That actively HID the exit marker: the lens is a
-// circular magnifier centered on the entry, and the exit marker — which for a
-// PROFIT_FLOOR/TP exit sits near the top of the price range, far from the
-// entry-centered lens — got covered/displaced out of the lens and vanished.
-// Empirically confirmed 2026-06-18: magnify-off render shows both triangles;
-// auto-pinned-lens render shows only the entry. The lens cannot show both
-// markers when pinned on one, and a trade-analysis tool MUST show the exit.
-// Magnify still works on hover, and the "Pin lens (P)" button + Display menu
-// keep it discoverable for users who want to inspect candle detail.
+// setTimeout > nextTick because cathode's three.js shader takes a moment to
+// warm up on first frame. Three retries cover the worst case (first-load shader
+// compile); pinLensAtTrade is idempotent so only the first laid-out call pins.
 watch(result, async (r) => {
   if (!r) return;
-  lensFrozen.value = false;   // unpinned: no lens until the user hovers
+  // Reset pin state because the canvas has been replaced by Vue's re-render.
+  lensFrozen.value = false;
   await nextTick();
+  setTimeout(pinLensAtTrade, 250);
+  setTimeout(pinLensAtTrade, 700);
+  setTimeout(pinLensAtTrade, 1500);
 });
 
 // Watchlist state
