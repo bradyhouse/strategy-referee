@@ -298,13 +298,16 @@ function onChartEsc(e) {
   if (e.key === "Escape" && chartExpanded.value) chartExpanded.value = false;
 }
 
-// When the expand modal opens, auto-pin its lens on the trade midpoint so the
-// fullscreen view MAINTAINS the magnified-trade presentation (not a plain big
-// chart). Retries cover cathode's async canvas mount + shader warmup. On close,
-// reset the flag; the modal canvas (and its pin blockers) are destroyed by the
-// v-if, so nothing to detach.
+// When the expand modal opens, MIRROR the inline lens state. If the inline lens
+// is pinned (lensFrozen), auto-pin the modal lens on the trade midpoint too so
+// the fullscreen view maintains the magnified-trade presentation. If the user
+// has UNPINNED the inline lens, leave the modal unpinned as well — the lens
+// still works on hover (:magnify), it just won't auto-pin. Retries cover
+// cathode's async canvas mount + shader warmup. On close, reset the flag; the
+// modal canvas (and its pin blockers) are destroyed by the v-if.
 watch(chartExpanded, async (open) => {
   if (!open) { expandedLensFrozen.value = false; return; }
+  if (!lensFrozen.value) return;   // inline unpinned → modal stays unpinned
   await nextTick();
   setTimeout(pinExpandedLens, 250);
   setTimeout(pinExpandedLens, 700);
