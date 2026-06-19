@@ -163,32 +163,28 @@ function togglePinLens() {
   lensFrozen.value = true;
 }
 
-// Auto-magnify the trade on each new result: pin the lens centered on the
-// MIDPOINT between the entry and exit markers (both X and price-Y).
+// Position + freeze the magnify lens on the trade MIDPOINT within `container`'s
+// canvas. Shared by the inline chart and the fullscreen expand modal so both
+// present the same "magnified trade" view. Returns true once it has positioned
+// (canvas laid out), false to signal the caller should retry.
 //
 // Why the midpoint and not the entry: cathode's lens is a WebGL fisheye
 // (radius ~250 device-px, 1.6x zoom) that displaces sampled content AWAY from
-// its center by the zoom factor. The old auto-pin centered on the entry at 45%
-// height, which pushed the exit marker — near the TOP of the range for a
-// TP/PROFIT_FLOOR exit — clean off the top edge, so it vanished (confirmed
-// empirically 2026-06-18 via headless render). Centering on the trade midpoint
-// keeps BOTH markers equidistant from center, so both stay inside the
-// magnified region AND on-screen, and it magnifies the whole entry→exit move —
-// a better "look at the trade" demo than the entry candle alone.
-//
-// Idempotent: no-ops if already pinned, magnify off, or canvas not laid out
-// yet (the watch(result) retries until the async cathode canvas mounts).
-function pinLensAtTrade() {
-  if (lensFrozen.value) return;
-  if (!magnify.value) return;
-  const container = chartContainerRef.value;
-  if (!container) return;
+// its center by the zoom factor. An entry-centered pin pushed the exit marker —
+// near the TOP of the range for a TP/PROFIT_FLOOR exit — clean off the top
+// edge, so it vanished (confirmed empirically 2026-06-18 via headless render).
+// Centering on the trade midpoint keeps BOTH markers equidistant from center,
+// so both stay inside the magnified region AND on-screen, and it magnifies the
+// whole entry→exit move — a better "look at the trade" demo than the entry alone.
+function positionLensAtTrade(container) {
+  if (!magnify.value) return false;
+  if (!container) return false;
   const canvas = container.querySelector("canvas");
-  if (!canvas) return;
+  if (!canvas) return false;
   const r = result.value;
-  if (!r?.chart?.candles?.length || !r.forward_look || r.forward_look.status) return;
+  if (!r?.chart?.candles?.length || !r.forward_look || r.forward_look.status) return false;
   const rect = canvas.getBoundingClientRect();
-  if (rect.width < 50 || rect.height < 50) return;  // not laid out yet
+  if (rect.width < 50 || rect.height < 50) return false;  // not laid out yet
 
   const candles = r.chart.candles;
   const entryMs = Date.parse(r.forward_look.entry_date + "T00:00:00Z");
@@ -198,7 +194,7 @@ function pinLensAtTrade() {
     if (entryIdx < 0 && candles[i].start >= entryMs) entryIdx = i;
     if (exitIdx  < 0 && candles[i].start >= exitMs)  { exitIdx = i; break; }
   }
-  if (entryIdx < 0 || exitIdx < 0) return;
+  if (entryIdx < 0 || exitIdx < 0) return false;
 
   // X: cathode's dl() right-anchored layout (Ve=8 left pad, Ze=56 right axis,
   // slotW=6). Mirror it to find the candle-column centers, then average.
@@ -242,7 +238,24 @@ function pinLensAtTrade() {
     }));
   }
   attachPinBlockers(canvas);
-  lensFrozen.value = true;
+  return true;
+}
+
+// Inline chart auto-pin (on each new result). Idempotent via lensFrozen so the
+// watch(result) retries only pin once. Sets lensFrozen so the toolbar button
+// reflects the pinned state and togglePinLens can release it.
+function pinLensAtTrade() {
+  if (lensFrozen.value) return;
+  if (positionLensAtTrade(chartContainerRef.value)) lensFrozen.value = true;
+}
+
+// Expand-modal auto-pin (when the modal opens). Separate canvas + separate
+// frozen flag from the inline view; the modal canvas is destroyed on close so
+// its blockers go with it. Keeps the magnified-trade presentation consistent
+// between the inline card and the fullscreen view.
+function pinExpandedLens() {
+  if (expandedLensFrozen.value) return;
+  if (positionLensAtTrade(expandedChartRef.value)) expandedLensFrozen.value = true;
 }
 function closeChartContextMenu() { chartContextMenu.value = null; }
 function toggleWebGL()      { flat.value      = !flat.value;      saveVisualPrefs(); }
@@ -277,9 +290,26 @@ const chartContainerRef = ref(null);
 // render with markers + watermark, not pixel-parity overlays. ESC and
 // click-on-backdrop both close.
 const chartExpanded = ref(false);
+// The modal renders its OWN CathodeCandle (separate canvas), so it needs its
+// own container ref + frozen flag — independent of the inline chart's lens.
+const expandedChartRef = ref(null);
+const expandedLensFrozen = ref(false);
 function onChartEsc(e) {
   if (e.key === "Escape" && chartExpanded.value) chartExpanded.value = false;
 }
+
+// When the expand modal opens, auto-pin its lens on the trade midpoint so the
+// fullscreen view MAINTAINS the magnified-trade presentation (not a plain big
+// chart). Retries cover cathode's async canvas mount + shader warmup. On close,
+// reset the flag; the modal canvas (and its pin blockers) are destroyed by the
+// v-if, so nothing to detach.
+watch(chartExpanded, async (open) => {
+  if (!open) { expandedLensFrozen.value = false; return; }
+  await nextTick();
+  setTimeout(pinExpandedLens, 250);
+  setTimeout(pinExpandedLens, 700);
+  setTimeout(pinExpandedLens, 1500);
+});
 
 // Note: the `watch(result, …)` that auto-pins the magnify lens on the trade
 // midpoint is registered AFTER `result` is declared lower in this file
@@ -1666,7 +1696,7 @@ const trendBadgeClass = computed(() => {
                   ✕ Close
                 </button>
               </div>
-              <div :class="['relative flex-1 rounded-b-xl overflow-hidden', chartContainerBg]">
+              <div ref="expandedChartRef" :class="['relative flex-1 rounded-b-xl overflow-hidden', chartContainerBg]">
                 <CathodeCandle
                   :key="`cc-expanded-${flat}`"
                   :candles="result.chart.candles"
