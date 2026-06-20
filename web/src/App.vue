@@ -448,7 +448,10 @@ function onChartKeydown(e) {
 
   if (e.key === "p" || e.key === "P") {
     e.preventDefault();
-    togglePinLens();
+    // Route the hotkey to whichever chart is active: the fullscreen modal's
+    // lens when expanded, otherwise the inline chart's.
+    if (chartExpanded.value) toggleExpandedPin();
+    else                     togglePinLens();
   }
 }
 
@@ -1809,9 +1812,9 @@ const trendBadgeClass = computed(() => {
                         ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
                     ]"
-                    :title="expandedLensFrozen ? 'Click to release the lens (follows cursor on hover)' : 'Pin the magnify lens on the trade'"
+                    :title="expandedLensFrozen ? 'Click to release the lens — or press P (follows cursor on hover)' : 'Pin the magnify lens on the trade — or press P'"
                   >
-                    {{ expandedLensFrozen ? "🔒 Lens pinned" : "📍 Pin lens" }}
+                    {{ expandedLensFrozen ? "🔒 Lens pinned" : "📍 Pin lens (P)" }}
                   </button>
                   <button
                     @click="openDisplayMenuFromButton"
