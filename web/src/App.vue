@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, createApp, h } from "vue";
 import { CathodeCandle, CathodeGrid } from "@stratchai/cathode";
 import "@stratchai/cathode/style";
 // Static bundle of the audit-universe screening run. 46 shelved daily-crypto
@@ -104,27 +104,26 @@ function blockMousemove(e) {
   e.stopPropagation();
 }
 
-// Cathode wires several interactions to the canvas — any of them can move
-// the lens, clear it, OR change the chart's scroll/zoom state. To keep
-// the lens pinned AND the chart view frozen we block them all at capture
-// phase:
-//   mousemove / pointermove   → moves the lens
+// Cathode wires several canvas interactions. When the lens is pinned we block
+// ONLY the events that would move or clear the lens itself — NOT navigation.
+// This keeps the lens fixed in place while still letting the user drag-pan,
+// click-to-focus, and arrow-key the chart underneath it (the chart stays fully
+// navigable with the magnifier held over it):
+//   mousemove / pointermove   → moves the lens (block: keep it pinned)
 //   mouseleave / mouseout
-//   pointerleave / pointerout → clears the lens to (-999, -999) sentinel
-//   wheel                     → cathode's scroll/zoom handler. Trackpad
-//                              users naturally generate wheel events when
-//                              the cursor passes over the chart; this was
-//                              compressing candles into the left third
-//                              of the chart.
-//   mousedown                 → drag-pan; could shift the visible window
-//                              even if the user only meant to click
-//   touchstart                → mobile equivalent of mousedown
-// attach/detach centralised so the togglePinLens + auto-pin paths stay
-// in sync.
+//   pointerleave / pointerout → clears the lens to its (-999,-999) sentinel
+//                               when the cursor leaves (block: keep it shown)
+//
+// Deliberately NOT blocked (so navigation works while pinned):
+//   mousedown / touchstart → cathode's drag-pan + focuses the wrapper, which
+//                is what makes the tabindex=0 onKeydown arrow handler (←→ pan,
+//                ↑↓ zoom) engage. A pure click doesn't pan (cathode has a 4px
+//                drag threshold), so click-to-focus is safe.
+//   wheel      → cathode's pan (deltaX / shift+wheel) + zoom-to-cursor (wheel).
+// attach/detach centralised so the togglePinLens + auto-pin paths stay in sync.
 const PIN_BLOCKED_EVENTS = [
   "mousemove", "mouseleave", "mouseout",
   "pointerleave", "pointerout",
-  "wheel", "mousedown", "touchstart",
 ];
 function attachPinBlockers(canvas) {
   for (const ev of PIN_BLOCKED_EVENTS) {
@@ -294,6 +293,76 @@ function toggleScanlines()  { scanlines.value = !scanlines.value; saveVisualPref
 function toggleGlow()       { glow.value      = !glow.value;      saveVisualPrefs(); }
 function toggleMagnify()    { magnify.value   = !magnify.value;   saveVisualPrefs(); }
 function setChartTheme(t)   { chartTheme.value = t;               saveVisualPrefs(); }
+
+// Download the current chart as a PNG. cathode's WebGL canvas can't be captured
+// directly (the renderer has no preserveDrawingBuffer, so toDataURL comes back
+// blank), and toggling the live chart's render mode would disrupt the view +
+// pinned lens. So we render a throwaway CathodeCandle OFFSCREEN in flat (2D)
+// mode — same candles, SMA200, entry/exit markers, axes, volume (minus the CRT
+// barrel/scanline shader, which a 2D capture can't include) — read its 2D
+// canvas, composite the @stratchai/cathode wordmark, and trigger the download.
+// The host is positioned in-viewport but invisible (opacity:0, z-index:-1)
+// because cathode gates rendering on an IntersectionObserver — fully off-screen
+// (left:-99999px) would never paint.
+const downloading = ref(false);
+async function downloadChart() {
+  const r = result.value;
+  if (downloading.value || !r?.chart?.candles?.length) return;
+  downloading.value = true;
+  const host = document.createElement("div");
+  host.style.cssText =
+    "position:fixed;left:0;top:0;width:1280px;height:640px;opacity:0;z-index:-1;pointer-events:none;";
+  document.body.appendChild(host);
+  let app = null;
+  try {
+    app = createApp({
+      render: () => h(CathodeCandle, {
+        candles: r.chart.candles,
+        overlays: chartOverlays.value,
+        markers: chartMarkers.value,
+        theme: chartTheme.value,
+        flat: true,            // 2D path → toDataURL works
+        compact: false,
+        curvature: 0,
+        scanlines: false,
+        glow: false,
+        magnify: false,
+        slotW: 8,
+      }),
+    });
+    app.mount(host);
+    await new Promise((res) => setTimeout(res, 500));  // let cathode size + paint
+    const src = host.querySelector("canvas");
+    if (!src || !src.width) return;
+    const out = document.createElement("canvas");
+    out.width = src.width;
+    out.height = src.height;
+    const ctx = out.getContext("2d");
+    // bake a solid backdrop (cathode draws on transparent; the container bg
+    // shows through live, so reproduce it or the PNG would be transparent)
+    ctx.fillStyle = chartTheme.value === "paper" ? "#fafaf9" : "#000000";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(src, 0, 0);
+    // @stratchai/cathode wordmark, bottom-left, mirroring the on-chart badge
+    const fs = Math.max(12, Math.round(out.height * 0.028));
+    ctx.font = `${fs}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = "rgba(52,211,153,0.92)";  // emerald-400
+    ctx.fillText("@stratchai/cathode", fs, out.height - fs);
+    const sym = r.symbol ?? "chart";
+    const d = r.forward_look?.entry_date ? "_" + r.forward_look.entry_date : "";
+    const a = document.createElement("a");
+    a.href = out.toDataURL("image/png");
+    a.download = `strategy-referee_${sym}${d}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    if (app) app.unmount();
+    host.remove();
+    downloading.value = false;
+  }
+}
 
 // Container background must follow the cathode theme — cathode renders on
 // transparent so whatever's behind the canvas shows through. Paper theme
@@ -1656,6 +1725,14 @@ const trendBadgeClass = computed(() => {
                   ⚙ Display
                 </button>
                 <button
+                  @click="downloadChart"
+                  :disabled="downloading"
+                  class="px-2 py-1 rounded-md text-[11px] font-medium bg-white/90 backdrop-blur text-gray-700 border border-gray-300 shadow-sm hover:bg-white transition disabled:opacity-50"
+                  title="Download this chart as a PNG"
+                >
+                  {{ downloading ? "…" : "⬇ PNG" }}
+                </button>
+                <button
                   @click="chartExpanded = true"
                   class="px-2 py-1 rounded-md text-[11px] font-medium bg-white/90 backdrop-blur text-gray-700 border border-gray-300 shadow-sm hover:bg-white transition"
                   title="Expand chart to fullscreen (ESC to close)"
@@ -1691,7 +1768,7 @@ const trendBadgeClass = computed(() => {
             </div>
           </div>
           <p class="mt-2 text-xs text-gray-500 italic">
-            Candles + SMA(200) overlay from <a href="https://www.npmjs.com/package/@stratchai/cathode" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/cathode</a>. Hover to see OHLC. The lens follows your cursor.
+            Candles + SMA(200) overlay from <a href="https://www.npmjs.com/package/@stratchai/cathode" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/cathode</a>. Hover to see OHLC. Drag or scroll to navigate; click the chart, then ← → pan and ↑ ↓ zoom.
           </p>
         </div>
 
@@ -1735,6 +1812,21 @@ const trendBadgeClass = computed(() => {
                     :title="expandedLensFrozen ? 'Click to release the lens (follows cursor on hover)' : 'Pin the magnify lens on the trade'"
                   >
                     {{ expandedLensFrozen ? "🔒 Lens pinned" : "📍 Pin lens" }}
+                  </button>
+                  <button
+                    @click="openDisplayMenuFromButton"
+                    class="px-2 py-1 rounded-md text-[11px] font-medium bg-white text-gray-700 border border-gray-300 shadow-sm hover:bg-gray-50 transition"
+                    title="Theme, curvature, WebGL, scanlines, glow, magnify"
+                  >
+                    ⚙ Display
+                  </button>
+                  <button
+                    @click="downloadChart"
+                    :disabled="downloading"
+                    class="px-2 py-1 rounded-md text-[11px] font-medium bg-white text-gray-700 border border-gray-300 shadow-sm hover:bg-gray-50 transition disabled:opacity-50"
+                    title="Download this chart as a PNG"
+                  >
+                    {{ downloading ? "…" : "⬇ PNG" }}
                   </button>
                   <button
                     @click="chartExpanded = false"

@@ -219,39 +219,39 @@ test.describe("Verdict views — visual smokes", () => {
     await expect(pinButton).toContainText("Pin lens");
   });
 
-  test("Pin-lens survives wheel + mousedown (chart geometry doesn't shift)", async ({ page }) => {
+  test("Pin-lens stays pinned through navigation (wheel + drag)", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Evaluate$/ }).click();
     await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).waitFor({ timeout: 5000 });
     await page.waitForTimeout(2500);
 
     const canvas = page.locator("canvas.cathode-candle-canvas").first();
-    const before = await canvas.boundingBox();
+    const box = await canvas.boundingBox();
 
-    // Trackpad-style horizontal scroll over the chart used to trigger
-    // cathode's scroll handler, compressing candles into the left third.
-    // The wheel blocker should prevent it.
+    // Navigation is now ALLOWED while the lens is pinned (the pin only freezes
+    // the lens position, not the chart view). Wheel-zoom and drag-pan should
+    // work AND the lens must remain pinned through them — the pin blocks only
+    // the lens-follow events (mousemove/leave), not mousedown/wheel.
     await canvas.hover({ position: { x: 200, y: 100 } });
-    await page.mouse.wheel(-100, 0);   // horizontal scroll
-    await page.mouse.wheel(0, 100);    // vertical scroll
+    await page.mouse.wheel(0, -200);   // zoom in
     await page.waitForTimeout(300);
-
-    // Mousedown on the chart (no drag) — should be blocked, not interpreted
-    // as a pan-start.
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5);
     await page.mouse.down();
-    await page.waitForTimeout(100);
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.5, { steps: 10 });
     await page.mouse.up();
     await page.waitForTimeout(300);
 
-    // The canvas DOM box shouldn't change; we're verifying the LENS PIN
-    // and chart-view state both survive. Lens-pinned button is still amber.
+    // The lens must still be pinned after navigating — interacting with the
+    // chart doesn't accidentally release the pin.
     const pinButton = page.getByRole("button", { name: /Lens pinned|Pin lens/ });
     await expect(pinButton).toContainText("Lens pinned");
 
+    // The canvas DOM element keeps its layout box (only its rendered content
+    // changes under navigation, not the element's size/position).
     const after = await canvas.boundingBox();
-    if (before && after) {
-      expect(after.x).toBeCloseTo(before.x, 0);
-      expect(after.width).toBeCloseTo(before.width, 0);
+    if (box && after) {
+      expect(after.x).toBeCloseTo(box.x, 0);
+      expect(after.width).toBeCloseTo(box.width, 0);
     }
 
     await page.screenshot({ path: "tests/e2e/screenshots/pin-lens-after-wheel.png", fullPage: true });
@@ -362,5 +362,45 @@ test.describe("Verdict views — visual smokes", () => {
     // ESC closes the modal.
     await page.keyboard.press("Escape");
     await expect(modal).toHaveCount(0);
+  });
+
+  test("Chart toolbar — Display, arrow-key zoom, PNG download (inline + modal)", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
+    await page.getByRole("button", { name: /Lens pinned|Pin lens/ }).first().waitFor({ timeout: 5000 });
+    await page.waitForTimeout(2500);
+
+    const canvas = page.locator("canvas").first();
+
+    // Display menu opens from the inline toolbar.
+    await page.getByRole("button", { name: /⚙ Display/ }).first().click();
+    await expect(page.getByText("WebGL pipeline")).toBeVisible();
+    await page.mouse.click(5, 5);  // dismiss
+
+    // Arrow-key zoom: click the chart to focus, ArrowUp should zoom (chart
+    // pixels change). Pan (←→) is a no-op at default zoom because the whole
+    // window fits — zoom first, which always has an effect.
+    await canvas.click({ position: { x: 200, y: 100 } });
+    const before = await canvas.screenshot();
+    for (let i = 0; i < 6; i++) await page.keyboard.press("ArrowUp");
+    await page.waitForTimeout(400);
+    const after = await canvas.screenshot();
+    expect(Buffer.compare(before, after)).not.toBe(0);  // chart changed → arrows work
+
+    // PNG download from the inline toolbar produces a non-trivial file.
+    const dl = page.waitForEvent("download", { timeout: 10000 });
+    await page.getByRole("button", { name: /⬇ PNG/ }).first().click();
+    const download = await dl;
+    expect(download.suggestedFilename()).toMatch(/^strategy-referee_.*\.png$/);
+    const fs = await import("node:fs");
+    const p = await download.path();
+    expect(fs.statSync(p).size).toBeGreaterThan(5000);
+
+    // Modal exposes Display + PNG too.
+    await page.getByRole("button", { name: /⛶ Expand/ }).click();
+    await page.waitForTimeout(2500);
+    const modal = page.locator(".fixed.inset-0.z-50");
+    await expect(modal.getByRole("button", { name: /⚙ Display/ })).toBeVisible();
+    await expect(modal.getByRole("button", { name: /⬇ PNG/ })).toBeVisible();
   });
 });
