@@ -66,11 +66,12 @@ test.describe("Verdict views — visual smokes", () => {
 
     // Entry + exit prices live in the chart legend bar above the canvas
     // (in-chart chips were removed — they crowded the triangles). Legend
-    // pill text is "— <date> @ <price>" for each side. ETH 2025-09-28 is
-    // the form's default; entry $4145.33 → PROFIT_FLOOR exit $4688.96 on
-    // 2025-10-06 is the canonical PASS-on-defaults demo.
-    await expect(page.locator("text=/2025-09-28 @ \\$4145\\.33/").first()).toBeVisible();
-    await expect(page.locator("text=/2025-10-06 @ \\$4688\\.96/").first()).toBeVisible();
+    // pill text is "— <date> @ <price>" for each side, price via fmtUsd
+    // (thousands-separated). ETH 2025-09-28 is the form's default; entry
+    // $4,145.33 → PROFIT_FLOOR exit $4,688.96 on 2025-10-06 is the canonical
+    // PASS-on-defaults demo.
+    await expect(page.locator("text=/2025-09-28 @ \\$4,145\\.33/").first()).toBeVisible();
+    await expect(page.locator("text=/2025-10-06 @ \\$4,688\\.96/").first()).toBeVisible();
 
     // TradingView-style cathode branding watermark — small clickable badge
     // top-left of every chart. Direct showcase value for the @stratchai/*
@@ -255,6 +256,45 @@ test.describe("Verdict views — visual smokes", () => {
     }
 
     await page.screenshot({ path: "tests/e2e/screenshots/pin-lens-after-wheel.png", fullPage: true });
+  });
+
+  test("Hover never moves the lens (pinned holds; unpinned has no lens)", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Evaluate$/ }).click();
+    const pinBtn = page.getByRole("button", { name: /Lens pinned|Pin lens/ }).first();
+    await pinBtn.waitFor({ timeout: 5000 });
+    await page.waitForTimeout(2600);
+
+    const canvas = page.locator("canvas.cathode-candle-canvas").first();
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    const sweep = async () => {
+      await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4, { steps: 10 });
+      await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.6, { steps: 10 });
+      await page.waitForTimeout(200);
+    };
+
+    // PINNED: the lens is on the trade. Sweeping the cursor across the chart
+    // must NOT move it (this is the bug being guarded — passive hover used to
+    // drag the magnify lens around).
+    await expect(pinBtn).toContainText("Lens pinned");
+    await page.mouse.move(5, 5); await page.waitForTimeout(300);
+    const pinnedBase = await canvas.screenshot();
+    await sweep();
+    const pinnedHover = await canvas.screenshot();
+    expect(Buffer.compare(pinnedBase, pinnedHover)).toBe(0);  // pin holds through hover
+
+    // UNPIN: lens disappears (clean chart) — the render must differ.
+    await pinBtn.click();
+    await expect(pinBtn).toContainText("Pin lens");
+    await page.mouse.move(5, 5); await page.waitForTimeout(300);
+    const unpinnedBase = await canvas.screenshot();
+    expect(Buffer.compare(pinnedBase, unpinnedBase)).not.toBe(0);  // lens removed
+
+    // UNPINNED: hovering must do nothing (no hover-magnify).
+    await sweep();
+    const unpinnedHover = await canvas.screenshot();
+    expect(Buffer.compare(unpinnedBase, unpinnedHover)).toBe(0);
   });
 
   test("Methodology lead-in renders on first visit + collapsible via header link", async ({ page }) => {

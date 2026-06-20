@@ -34,17 +34,18 @@ function saveVisualPrefs() {
   localStorage.setItem(LS_VISUAL_KEY, JSON.stringify({
     theme: chartTheme.value, curvature: curvature.value,
     scanlines: scanlines.value, glow: glow.value,
-    magnify: magnify.value, flat: flat.value,
+    flat: flat.value,
   }));
 }
 const _vp        = loadVisualPrefs();
-// Defaults tuned for the demo: paper theme + visible curvature + magnify
-// on. Phosphor/amber + glow stay available via the right-click menu.
+// Defaults tuned for the demo: phosphor theme + visible curvature. The magnify
+// lens is no longer a hover toggle — it renders only when the trade is PINNED
+// (see lensFrozen / the <CathodeCandle> :magnify bindings), so there's no
+// `magnify` visual-pref anymore.
 const chartTheme = ref(_vp.theme     ?? "phosphor");
 const curvature  = ref(_vp.curvature ?? 24);
 const scanlines  = ref(_vp.scanlines ?? true);
 const glow       = ref(_vp.glow      ?? false);
-const magnify    = ref(_vp.magnify   ?? true);
 // flat=false enables three.js + barrel-shader curvature. The page does
 // take a moment longer to render the first chart (~200ms extra warm-up)
 // because three.js needs to compile the lens shader on first use.
@@ -65,120 +66,55 @@ function openDisplayMenuFromButton(e) {
   chartContextMenu.value = { x: r.left, y: r.bottom + 4 };
 }
 
-// Lens-freeze: cathode's magnify lens follows the cursor (the only mode it
-// supports). To "pin" it at a specific position, we capture the last hover
-// coordinates over the canvas, then add a capture-phase listener that
-// stops cathode's mousemove handler from running — the lens stays where it
-// last was. Unfreezing removes the listener.
+// === Magnify lens — "pinned overlay only" model ===
+// The lens renders ONLY when pinned: cathode's :magnify prop is bound to these
+// frozen flags (see the <CathodeCandle> tags). cathode's own watcher clears the
+// lens to its off-screen sentinel the instant magnify→false, so unpinning needs
+// nothing more than flipping the flag. Passive hover NEVER moves the lens — a
+// container-level capture listener suppresses hover so cathode's cursor-follow
+// can't fire. Net behaviour:
+//   pinned   → lens sits on the trade; hover does nothing; drag/wheel/arrows navigate
+//   unpinned → no lens at all; clean navigable chart; hover does nothing
 const lensFrozen = ref(false);
-const lastHoverPos = ref(null);
+// (expandedLensFrozen for the modal is declared with the other modal state)
 
-function trackLastHover(e) {
-  if (lensFrozen.value) return;
-  // Only track mousemoves over the canvas itself, NOT over the toolbar
-  // buttons or the band/drop-line overlays. Without this filter,
-  // lastHoverPos would update to the button position as the user moves
-  // their cursor up to click 'Pin lens' — pinning the lens at the
-  // top-right corner instead of where the user was inspecting. The
-  // canvas pass-through (pointer-events:none on overlays) means
-  // e.target is canvas iff the cursor is actually over a candle.
-  if (e.target?.tagName !== "CANVAS") return;
-  lastHoverPos.value = { x: e.clientX, y: e.clientY };
-}
-// Block real user mouse events but allow synthetic ones through. The
-// isTrusted check distinguishes events fired by the browser (true) from
-// events fired by our own dispatchEvent (false). This lets the lens-seed
-// + auto-pin sequence work even while the blocker is already attached:
-// dispatch a synthetic mousemove → cathode's handler still runs → lens
-// position updates; subsequent real mouse motion gets stopped at capture.
-//
-// Used for mousemove AND mouseleave / pointerleave. Cathode's mouseleave
-// handler sets the lens position to (-999, -999) — a sentinel that makes
-// the WebGL renderer set lensR=0 (lens invisible). The lens "disappears"
-// the moment the cursor crosses onto a toolbar button (Pin / Display),
-// any DOM element with pointer-events:auto, or even the chart border. So
-// the leave events need to be intercepted too, or the lens is lost the
-// first time the user moves their mouse anywhere near the toolbar.
-function blockMousemove(e) {
+// Suppress passive hover (and leave) at CONTAINER capture phase. Capture on the
+// container fires BEFORE cathode's canvas listeners (correct ordering — a
+// canvas-level blocker fires too late, since cathode's handler is registered
+// first) and survives canvas remounts (a Display/WebGL toggle replaces the
+// canvas, not the container). We let through:
+//   - drag mousemove (e.buttons > 0) → cathode still pans
+//   - synthetic events (isTrusted === false) → our programmatic lens placement
+// and block real passive hover + leaves so the lens/crosshair never react to
+// the cursor merely moving across the chart.
+function suppressHover(e) {
   if (!e.isTrusted) return;
+  if (e.type === "mousemove" && e.buttons) return;  // dragging → allow pan
   e.stopPropagation();
 }
-
-// Cathode wires several canvas interactions. When the lens is pinned we block
-// ONLY the events that would move or clear the lens itself — NOT navigation.
-// This keeps the lens fixed in place while still letting the user drag-pan,
-// click-to-focus, and arrow-key the chart underneath it (the chart stays fully
-// navigable with the magnifier held over it):
-//   mousemove / pointermove   → moves the lens (block: keep it pinned)
-//   mouseleave / mouseout
-//   pointerleave / pointerout → clears the lens to its (-999,-999) sentinel
-//                               when the cursor leaves (block: keep it shown)
-//
-// Deliberately NOT blocked (so navigation works while pinned):
-//   mousedown / touchstart → cathode's drag-pan + focuses the wrapper, which
-//                is what makes the tabindex=0 onKeydown arrow handler (←→ pan,
-//                ↑↓ zoom) engage. A pure click doesn't pan (cathode has a 4px
-//                drag threshold), so click-to-focus is safe.
-//   wheel      → cathode's pan (deltaX / shift+wheel) + zoom-to-cursor (wheel).
-// attach/detach centralised so the togglePinLens + auto-pin paths stay in sync.
-const PIN_BLOCKED_EVENTS = [
-  "mousemove", "mouseleave", "mouseout",
-  "pointerleave", "pointerout",
-];
-function attachPinBlockers(canvas) {
-  for (const ev of PIN_BLOCKED_EVENTS) {
-    canvas.addEventListener(ev, blockMousemove, true);
-  }
-}
-function detachPinBlockers(canvas) {
-  for (const ev of PIN_BLOCKED_EVENTS) {
-    canvas.removeEventListener(ev, blockMousemove, true);
-  }
-}
-
-// Release a pinned lens AND clear it immediately. Detaching the blockers alone
-// leaves the frozen lens lingering on-screen until the cursor next crosses the
-// canvas (cathode only resets the lens on a leave event). So after detaching,
-// dispatch the leave events ourselves — cathode's handler resets the lens to
-// its off-screen sentinel and re-renders, so the lens disappears the instant
-// the user clicks Unpin. Blockers are already off, so these reach cathode.
-function releaseLens(canvas) {
-  detachPinBlockers(canvas);
-  for (const type of ["mouseout", "mouseleave", "pointerout", "pointerleave"]) {
-    canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
-  }
+const HOVER_EVENTS = ["mousemove", "mouseleave", "mouseout", "pointerleave", "pointerout"];
+function attachHoverSuppressor(container) {
+  if (!container) return;
+  // addEventListener dedupes identical (fn, capture) pairs, so calling this on
+  // every result / modal-open is safe (no double-attach).
+  for (const ev of HOVER_EVENTS) container.addEventListener(ev, suppressHover, true);
 }
 
 function togglePinLens() {
-  if (!chartContainerRef.value) return;
-  const canvas = chartContainerRef.value.querySelector("canvas");
-  if (!canvas) return;
   if (lensFrozen.value) {
-    releaseLens(canvas);
-    lensFrozen.value = false;
+    lensFrozen.value = false;   // :magnify → false; cathode clears the lens
     return;
   }
-  // Need a position to pin to. Default to chart center if user hasn't
-  // hovered yet (e.g. they click Pin before moving cursor onto the chart).
-  let pos = lastHoverPos.value;
-  if (!pos) {
-    const r = chartContainerRef.value.getBoundingClientRect();
-    pos = { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
-  }
-  // Fire a synthetic mousemove at the pin position so the lens sits where
-  // the user expects, then block. isTrusted distinguishes our event from
-  // real ones so this works whether blockers are attached first or last.
-  canvas.dispatchEvent(new MouseEvent("mousemove", {
-    clientX: pos.x, clientY: pos.y, bubbles: true, cancelable: true,
-  }));
-  attachPinBlockers(canvas);
-  lensFrozen.value = true;
+  lensFrozen.value = true;      // :magnify → true; place the lens once cathode reacts
+  nextTick(() => {
+    positionLensAtTrade(chartContainerRef.value);
+    setTimeout(() => positionLensAtTrade(chartContainerRef.value), 90);
+  });
 }
 
-// Position + freeze the magnify lens on the trade MIDPOINT within `container`'s
-// canvas. Shared by the inline chart and the fullscreen expand modal so both
-// present the same "magnified trade" view. Returns true once it has positioned
-// (canvas laid out), false to signal the caller should retry.
+// Dispatch a synthetic mousemove at the trade MIDPOINT so cathode positions the
+// lens there. Only has an effect while pinned (:magnify true). Returns true once
+// it has positioned (canvas laid out), false so the caller can retry.
 //
 // Why the midpoint and not the entry: cathode's lens is a WebGL fisheye
 // (radius ~250 device-px, 1.6x zoom) that displaces sampled content AWAY from
@@ -189,7 +125,6 @@ function togglePinLens() {
 // so both stay inside the magnified region AND on-screen, and it magnifies the
 // whole entry→exit move — a better "look at the trade" demo than the entry alone.
 function positionLensAtTrade(container) {
-  if (!magnify.value) return false;
   if (!container) return false;
   const canvas = container.querySelector("canvas");
   if (!canvas) return false;
@@ -242,56 +177,56 @@ function positionLensAtTrade(container) {
   const x = rect.left + xLocalCss;
   const y = rect.top + yLocalCss;
 
-  // mouseenter+mouseover prime the canvas (reset any prior leave-cleared
-  // state); mousemove triggers cathode's lens-position handler.
+  // mouseenter+mouseover prime the canvas; mousemove triggers cathode's
+  // lens-position handler. These are synthetic (isTrusted=false) so the
+  // container hover-suppressor lets them through.
   for (const type of ["mouseenter", "mouseover", "mousemove"]) {
     canvas.dispatchEvent(new MouseEvent(type, {
       clientX: x, clientY: y, bubbles: true, cancelable: true,
     }));
   }
-  attachPinBlockers(canvas);
   return true;
 }
 
-// Inline chart auto-pin (on each new result). Idempotent via lensFrozen so the
-// watch(result) retries only pin once. Sets lensFrozen so the toolbar button
-// reflects the pinned state and togglePinLens can release it.
+// Inline chart auto-pin (on each new result). Sets lensFrozen (→ :magnify on)
+// and places the lens on the trade. The watch(result) retries cover cathode's
+// async canvas mount; positionLensAtTrade is a no-op until the canvas is laid
+// out, and re-pinning an already-pinned lens just re-places it.
 function pinLensAtTrade() {
-  if (lensFrozen.value) return;
-  if (positionLensAtTrade(chartContainerRef.value)) lensFrozen.value = true;
+  lensFrozen.value = true;
+  attachHoverSuppressor(chartContainerRef.value);
+  positionLensAtTrade(chartContainerRef.value);
 }
 
-// Expand-modal auto-pin (when the modal opens). Separate canvas + separate
-// frozen flag from the inline view; the modal canvas is destroyed on close so
-// its blockers go with it. Keeps the magnified-trade presentation consistent
-// between the inline card and the fullscreen view.
+// Expand-modal auto-pin (when the modal opens, mirroring the inline pin state).
+// Separate canvas + frozen flag from the inline view; the modal canvas is
+// destroyed on close. Sets expandedLensFrozen (→ modal :magnify on) and places
+// the lens on the trade.
 function pinExpandedLens() {
-  if (expandedLensFrozen.value) return;
-  if (positionLensAtTrade(expandedChartRef.value)) expandedLensFrozen.value = true;
+  expandedLensFrozen.value = true;
+  attachHoverSuppressor(expandedChartRef.value);
+  positionLensAtTrade(expandedChartRef.value);
 }
 
 // Pin/unpin toggle for the fullscreen modal's own lens — the modal's equivalent
-// of togglePinLens(). Unpin detaches the modal canvas's blockers (lens then
-// follows the cursor on hover); pin re-positions on the trade midpoint and
-// freezes. Operates on expandedChartRef / expandedLensFrozen, independent of
-// the inline chart.
+// of togglePinLens(). Unpin flips the flag (modal :magnify → false, cathode
+// clears the lens); pin re-enables + re-places on the trade midpoint. Operates
+// on expandedChartRef / expandedLensFrozen, independent of the inline chart.
 function toggleExpandedPin() {
-  const container = expandedChartRef.value;
-  if (!container) return;
-  const canvas = container.querySelector("canvas");
-  if (!canvas) return;
   if (expandedLensFrozen.value) {
-    releaseLens(canvas);
     expandedLensFrozen.value = false;
     return;
   }
-  if (positionLensAtTrade(container)) expandedLensFrozen.value = true;
+  expandedLensFrozen.value = true;
+  nextTick(() => {
+    positionLensAtTrade(expandedChartRef.value);
+    setTimeout(() => positionLensAtTrade(expandedChartRef.value), 90);
+  });
 }
 function closeChartContextMenu() { chartContextMenu.value = null; }
 function toggleWebGL()      { flat.value      = !flat.value;      saveVisualPrefs(); }
 function toggleScanlines()  { scanlines.value = !scanlines.value; saveVisualPrefs(); }
 function toggleGlow()       { glow.value      = !glow.value;      saveVisualPrefs(); }
-function toggleMagnify()    { magnify.value   = !magnify.value;   saveVisualPrefs(); }
 function setChartTheme(t)   { chartTheme.value = t;               saveVisualPrefs(); }
 
 // Download the current chart as a PNG. cathode's WebGL canvas can't be captured
@@ -373,11 +308,11 @@ const chartContainerBg = computed(() => {
     : "bg-black border-gray-200";
 });
 
-// Ref on the chart container so togglePinLens() can find the canvas element
-// to dispatch synthetic mouse events (pin the lens at the last hover position)
-// and attach/detach the pin blockers. Cathode wires its hover/magnify handler
+// Ref on the chart container — the hover-suppressor attaches here (capture
+// phase) and positionLensAtTrade() finds the canvas inside it to dispatch the
+// synthetic lens-placement mousemove. Cathode wires its hover/magnify handler
 // as `onMousemove` directly on the canvas element (verified in cathode dist) —
-// there's no imperative API.
+// there's no imperative API, hence the synthetic-event approach.
 const chartContainerRef = ref(null);
 
 // Fullscreen expand state for the chart. The inline chart is fixed at
@@ -399,16 +334,17 @@ function onChartEsc(e) {
 }
 
 // When the expand modal opens, MIRROR the inline lens state. If the inline lens
-// is pinned (lensFrozen), auto-pin the modal lens on the trade midpoint too so
-// the fullscreen view maintains the magnified-trade presentation. If the user
-// has UNPINNED the inline lens, leave the modal unpinned as well — the lens
-// still works on hover (:magnify), it just won't auto-pin. Retries cover
-// cathode's async canvas mount + shader warmup. On close, reset the flag; the
-// modal canvas (and its pin blockers) are destroyed by the v-if.
+// is pinned, auto-pin the modal lens on the trade midpoint too so the fullscreen
+// view maintains the magnified-trade presentation. If the inline lens is
+// unpinned, leave the modal unpinned (no lens — clean navigable chart). Retries
+// cover cathode's async canvas mount + shader warmup. On close, reset the flag;
+// the modal canvas is destroyed by the v-if. The modal container also needs the
+// hover-suppressor (attached inside pinExpandedLens / on open).
 watch(chartExpanded, async (open) => {
   if (!open) { expandedLensFrozen.value = false; return; }
-  if (!lensFrozen.value) return;   // inline unpinned → modal stays unpinned
   await nextTick();
+  attachHoverSuppressor(expandedChartRef.value);
+  if (!lensFrozen.value) return;   // inline unpinned → modal stays unpinned
   setTimeout(pinExpandedLens, 250);
   setTimeout(pinExpandedLens, 700);
   setTimeout(pinExpandedLens, 1500);
@@ -423,10 +359,8 @@ watch(chartExpanded, async (open) => {
 // Keyboard shortcuts:
 //   Cmd+Shift+= / Cmd+Shift+-   curvature nudge (Shift so we don't shadow
 //                               the browser's native Cmd+= / Cmd+- page zoom)
-//   P                            pin/unpin lens at cursor — the ergonomic
-//                               fix for "I want to inspect THIS candle but
-//                               clicking the Pin button drags my cursor
-//                               (and lastHoverPos) to the corner."
+//   P                            pin/unpin the lens (routes to the modal lens
+//                               when expanded, else the inline lens)
 function onChartKeydown(e) {
   // Don't intercept while the user is typing in an input
   if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
@@ -523,21 +457,19 @@ const maxAtDate = computed(() => {
   return d.toISOString().slice(0, 10);
 });
 
-// watch-result-magnify: after the chart renders, auto-pin the magnify lens on
-// the TRADE MIDPOINT (see pinLensAtTrade for why midpoint, not entry — the old
-// entry-centered pin pushed the exit marker off the top edge). The demo flow is
-// "look at a trade," so the lens lands on the entry→exit move and STAYS there
-// without the user having to discover the Pin button. If the user unpins to
-// explore, their choice is respected until the next Evaluate / preset click.
+// watch-result-magnify: after the chart renders, attach the hover-suppressor
+// and auto-pin the magnify lens on the TRADE MIDPOINT (see pinLensAtTrade for
+// why midpoint, not entry — the old entry-centered pin pushed the exit marker
+// off the top edge). The demo flow is "look at a trade," so the lens lands on
+// the entry→exit move and stays there. Unpinning (button / P) hides the lens
+// for a clean navigable chart; the next Evaluate re-pins.
 //
 // setTimeout > nextTick because cathode's three.js shader takes a moment to
-// warm up on first frame. Three retries cover the worst case (first-load shader
-// compile); pinLensAtTrade is idempotent so only the first laid-out call pins.
+// warm up on first frame; three retries cover the async canvas mount.
 watch(result, async (r) => {
   if (!r) return;
-  // Reset pin state because the canvas has been replaced by Vue's re-render.
-  lensFrozen.value = false;
   await nextTick();
+  attachHoverSuppressor(chartContainerRef.value);
   setTimeout(pinLensAtTrade, 250);
   setTimeout(pinLensAtTrade, 700);
   setTimeout(pinLensAtTrade, 1500);
@@ -1665,7 +1597,6 @@ const trendBadgeClass = computed(() => {
               ref="chartContainerRef"
               :class="['relative h-80 rounded-lg overflow-hidden border', chartContainerBg]"
               @contextmenu.prevent="onChartContextMenu"
-              @mousemove="trackLastHover"
             >
               <CathodeCandle
                 :key="`cc-${flat}`"
@@ -1678,7 +1609,7 @@ const trendBadgeClass = computed(() => {
                 :curvature="curvature"
                 :scanlines="scanlines"
                 :glow="glow"
-                :magnify="magnify"
+                :magnify="lensFrozen"
                 :slot-w="6"
               />
 
@@ -1771,7 +1702,7 @@ const trendBadgeClass = computed(() => {
             </div>
           </div>
           <p class="mt-2 text-xs text-gray-500 italic">
-            Candles + SMA(200) overlay from <a href="https://www.npmjs.com/package/@stratchai/cathode" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/cathode</a>. Hover to see OHLC. Drag or scroll to navigate; click the chart, then ← → pan and ↑ ↓ zoom.
+            Candles + SMA(200) overlay from <a href="https://www.npmjs.com/package/@stratchai/cathode" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/cathode</a>. The lens pins on the trade — toggle it with Pin&nbsp;lens (P). Drag or scroll to navigate; click the chart, then ← → pan and ↑ ↓ zoom.
           </p>
         </div>
 
@@ -1804,7 +1735,7 @@ const trendBadgeClass = computed(() => {
                 </div>
                 <div class="flex items-center gap-2">
                   <button
-                    v-if="magnify"
+                    v-if="result.forward_look && !result.forward_look.status"
                     @click="toggleExpandedPin"
                     :class="[
                       'px-2 py-1 rounded-md text-[11px] font-medium border shadow-sm transition',
@@ -1812,7 +1743,7 @@ const trendBadgeClass = computed(() => {
                         ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
                     ]"
-                    :title="expandedLensFrozen ? 'Click to release the lens — or press P (follows cursor on hover)' : 'Pin the magnify lens on the trade — or press P'"
+                    :title="expandedLensFrozen ? 'Click to release the lens — or press P' : 'Pin the magnify lens on the trade — or press P'"
                   >
                     {{ expandedLensFrozen ? "🔒 Lens pinned" : "📍 Pin lens (P)" }}
                   </button>
@@ -1852,7 +1783,7 @@ const trendBadgeClass = computed(() => {
                   :curvature="curvature"
                   :scanlines="scanlines"
                   :glow="glow"
-                  :magnify="magnify"
+                  :magnify="expandedLensFrozen"
                   :slot-w="10"
                 />
                 <a href="https://www.npmjs.com/package/@stratchai/cathode"
@@ -2230,10 +2161,6 @@ const trendBadgeClass = computed(() => {
         <label class="flex items-center gap-2 px-3 py-2 hover:bg-gray-800 cursor-pointer">
           <input type="checkbox" :checked="glow" @change="toggleGlow" />
           <span>Glow</span>
-        </label>
-        <label class="flex items-center gap-2 px-3 py-2 hover:bg-gray-800 cursor-pointer">
-          <input type="checkbox" :checked="magnify" @change="toggleMagnify" />
-          <span>Magnify (hover lens)</span>
         </label>
 
         <div class="h-px bg-gray-700 my-1"></div>
