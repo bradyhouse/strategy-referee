@@ -1163,6 +1163,7 @@ const honestDisclosure = computed(() => {
       heading: "What PASS actually means",
       summary: "Structural match with the walk-forward survivor family — NOT a buy signal for this specific token at this date.",
       bullets: [
+        "Rare by design: a 90-day scan of the CMC top-30 surfaced ZERO current matches — the tool won't fabricate a PASS just because you asked. The demo presets use historical dates where the oversold-in-uptrend setup genuinely occurred, to show what a real match looks like.",
         "Population-level edge: n=29 OOS trades, mean +0.71%/trade net at 1.5% real fees, win rate 62%. Magnitude is small.",
         "~38% of those audit trades were losers. Any single trade — including this one — can fall on either side; the survivor family's edge is the slight asymmetry in aggregate, not per-trade conviction.",
         "Honest use: download the spec, backtest on your own universe + recent bars, treat as one bet at this fingerprint in a portfolio with disciplined sizing. Respect the spec's exit envelope (SL ~-8%, profit floor ~+10%, max hold ~10 days).",
