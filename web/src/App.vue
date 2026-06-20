@@ -107,8 +107,8 @@ function togglePinLens() {
   }
   lensFrozen.value = true;      // :magnify → true; place the lens once cathode reacts
   nextTick(() => {
-    positionLensAtTrade(chartContainerRef.value);
-    setTimeout(() => positionLensAtTrade(chartContainerRef.value), 90);
+    positionLensAtTrade(chartContainerRef.value, CC_SLOT_W_PX);
+    setTimeout(() => positionLensAtTrade(chartContainerRef.value, CC_SLOT_W_PX), 90);
   });
 }
 
@@ -124,7 +124,11 @@ function togglePinLens() {
 // Centering on the trade midpoint keeps BOTH markers equidistant from center,
 // so both stay inside the magnified region AND on-screen, and it magnifies the
 // whole entry→exit move — a better "look at the trade" demo than the entry alone.
-function positionLensAtTrade(container) {
+// slotW MUST match the :slot-w prop on the target CathodeCandle — inline (6)
+// and the expand modal (10) differ, and cathode's right-anchored layout depends
+// on it. Passing the wrong slotW lands the lens off to the side (the modal lens
+// was computed with the inline 6 and sat left of the markers).
+function positionLensAtTrade(container, slotW) {
   if (!container) return false;
   const canvas = container.querySelector("canvas");
   if (!canvas) return false;
@@ -144,13 +148,14 @@ function positionLensAtTrade(container) {
   if (entryIdx < 0 || exitIdx < 0) return false;
 
   // X: cathode's dl() right-anchored layout (Ve=8 left pad, Ze=56 right axis,
-  // slotW=6). Mirror it to find the candle-column centers, then average.
+  // slotW per the target chart). Mirror it to find the candle-column centers,
+  // then average.
   const plotW = Math.max(1, rect.width - CC_LEFT_PAD_PX - CC_RIGHT_AXIS_PX);
-  const maxFit = Math.max(1, Math.floor(plotW / CC_SLOT_W_PX));
+  const maxFit = Math.max(1, Math.floor(plotW / slotW));
   const count = Math.min(maxFit, candles.length);
   const firstIdx = Math.max(0, candles.length - count);
   const midIdx = (entryIdx + exitIdx) / 2;
-  const xLocalCss = CC_LEFT_PAD_PX + (midIdx - firstIdx + 0.5) * CC_SLOT_W_PX;
+  const xLocalCss = CC_LEFT_PAD_PX + (midIdx - firstIdx + 0.5) * slotW;
 
   // Y: cathode's hl() price-panel split + vl() range, computed in DEVICE px
   // then scaled to CSS via the canvas's own device→css ratio (DPR-robust).
@@ -195,7 +200,7 @@ function positionLensAtTrade(container) {
 function pinLensAtTrade() {
   lensFrozen.value = true;
   attachHoverSuppressor(chartContainerRef.value);
-  positionLensAtTrade(chartContainerRef.value);
+  positionLensAtTrade(chartContainerRef.value, CC_SLOT_W_PX);
 }
 
 // Expand-modal auto-pin (when the modal opens, mirroring the inline pin state).
@@ -205,7 +210,7 @@ function pinLensAtTrade() {
 function pinExpandedLens() {
   expandedLensFrozen.value = true;
   attachHoverSuppressor(expandedChartRef.value);
-  positionLensAtTrade(expandedChartRef.value);
+  positionLensAtTrade(expandedChartRef.value, CC_SLOT_W_EXPANDED);
 }
 
 // Pin/unpin toggle for the fullscreen modal's own lens — the modal's equivalent
@@ -219,8 +224,8 @@ function toggleExpandedPin() {
   }
   expandedLensFrozen.value = true;
   nextTick(() => {
-    positionLensAtTrade(expandedChartRef.value);
-    setTimeout(() => positionLensAtTrade(expandedChartRef.value), 90);
+    positionLensAtTrade(expandedChartRef.value, CC_SLOT_W_EXPANDED);
+    setTimeout(() => positionLensAtTrade(expandedChartRef.value, CC_SLOT_W_EXPANDED), 90);
   });
 }
 function closeChartContextMenu() { chartContextMenu.value = null; }
@@ -1010,7 +1015,12 @@ function libraryHref(name) {
 // only thing tradeWindowGeometry computes.
 const CC_LEFT_PAD_PX    = 8;
 const CC_RIGHT_AXIS_PX  = 56;
-const CC_SLOT_W_PX      = 6;
+// Per-chart candle slot widths — MUST match the :slot-w props on the
+// <CathodeCandle> tags. The inline chart and the expand modal differ, and the
+// lens-positioning math (positionLensAtTrade) + drop-line geometry depend on
+// using the right one. Bound to the template props below so they can't drift.
+const CC_SLOT_W_PX      = 6;    // inline chart  (:slot-w)
+const CC_SLOT_W_EXPANDED = 10;  // expand modal  (:slot-w)
 
 const chartContainerSize = ref({ w: 0, h: 0 });
 let _chartResizeObserver = null;
@@ -1610,7 +1620,7 @@ const trendBadgeClass = computed(() => {
                 :scanlines="scanlines"
                 :glow="glow"
                 :magnify="lensFrozen"
-                :slot-w="6"
+                :slot-w="CC_SLOT_W_PX"
               />
 
               <!-- Cathode branding watermark (TradingView-pattern) — small,
@@ -1784,7 +1794,7 @@ const trendBadgeClass = computed(() => {
                   :scanlines="scanlines"
                   :glow="glow"
                   :magnify="expandedLensFrozen"
-                  :slot-w="10"
+                  :slot-w="CC_SLOT_W_EXPANDED"
                 />
                 <a href="https://www.npmjs.com/package/@stratchai/cathode"
                    target="_blank" rel="noopener"
