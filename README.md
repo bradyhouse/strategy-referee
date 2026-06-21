@@ -6,6 +6,48 @@ A CoinMarketCap-powered evaluator that asks one question per token: *does this m
 
 Built on the [`@stratchai/*`](https://www.npmjs.com/org/stratchai) library suite — `indicators`, `strategy-spec`, `backtest`, `cathode`.
 
+## Use as an AI Agent Skill (MCP)
+
+strategy-referee is an **agent-invokable skill**, not just a web app. It ships an
+[MCP](https://modelcontextprotocol.io) server ([`mcp/server.js`](mcp/server.js))
+that exposes the evaluator as tools any MCP client (Claude Desktop, etc.) can call.
+It **generates a backtestable strategy spec from CoinMarketCap data — it does not
+execute trades or sign transactions** (a quant-research referee, not a live agent).
+
+**Tools:**
+
+| Tool | Input | Returns |
+|------|-------|---------|
+| `evaluate_token` | `symbol`, optional `as_of_date` (YYYY-MM-DD) | `PASS`/`WATCH`/`REJECT` + reasoning + gate checklist; on PASS/WATCH a backtestable [`@stratchai/strategy-spec`](https://www.npmjs.com/package/@stratchai/strategy-spec); with `as_of_date`, a forward-look of what the trade would have done |
+| `evaluate_watchlist` | `symbols[]`, optional `as_of_date` | one verdict per symbol (expect most to REJECT — by design) |
+
+**Run it (stdio):**
+
+```bash
+npm install
+cp .env.example .env   # add your CMC API key
+npm run skill          # MCP server on stdio
+```
+
+**Register with an MCP client** (e.g. Claude Desktop `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "strategy-referee": {
+      "command": "node",
+      "args": ["/absolute/path/to/strategy-referee/mcp/server.js"],
+      "env": { "CMC_API_KEY": "your-cmc-key" }
+    }
+  }
+}
+```
+
+Then ask the agent things like *"evaluate ETH"* or *"scan BTC, SOL, LINK"* — it
+calls the skill, gets a verdict + (on PASS) a backtestable spec it can hand to
+[`@stratchai/backtest`](https://www.npmjs.com/package/@stratchai/backtest). The
+web UI below is a demo front-end over the **same** evaluator core.
+
 ## Quick start
 
 ```bash

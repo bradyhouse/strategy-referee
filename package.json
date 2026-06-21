@@ -5,8 +5,12 @@
   "description": "Anti-hype crypto strategy evaluator. Emits a backtestable strategy spec when a token matches a narrow walk-forward-validated setup family; rejects with plain-language explanation otherwise.",
   "type": "module",
   "main": "src/index.js",
+  "bin": {
+    "strategy-referee-skill": "mcp/server.js"
+  },
   "scripts": {
     "start": "node src/index.js",
+    "skill": "node mcp/server.js",
     "test": "node --test tests/",
     "dev:api": "node server.js",
     "dev:web": "cd web && vite",
@@ -30,6 +34,7 @@
   "author": "Brady House <bradyhouse@gmail.com>",
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@stratchai/backtest": "^0.0.3",
     "@stratchai/cathode": "^0.1.6",
     "@stratchai/indicators": "^0.4.0",
@@ -37,7 +42,8 @@
     "cors": "^2.8.6",
     "dotenv": "^16.4.0",
     "express": "^4.22.2",
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "zod": "^3.25.76"
   },
   "engines": {
     "node": ">=20"
