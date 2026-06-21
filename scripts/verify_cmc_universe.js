@@ -1,5 +1,5 @@
 // Forward-test the survivor family against a curated CMC top-cap universe
-// drawn from Kraken's tradable list. The sigma walk-forward audit
+// drawn from Kraken's tradable list. The walk-forward audit
 // (docs/cmc_evidence_table.md) ran against Coinbase crypto + Alpaca stocks;
 // this script answers "does the same edge show up on Kraken tokens we'd
 // actually evaluate in the demo?"
@@ -96,9 +96,9 @@ async function evaluateToken(symbol) {
   lines.push("");
   lines.push("## Why this exists");
   lines.push("");
-  lines.push("Sigma's walk-forward audit ([source](https://github.com/bradyhouse/sigma-swing-agent/blob/main/docs/cmc_evidence_table.md)) tested the survivor family against Coinbase crypto + Alpaca stocks. The hackathon demo evaluates Kraken-tradable tokens — a partially-different universe. This script answers \"does the same edge show up here, or did selection bias inflate the original numbers?\"");
+  lines.push("Our walk-forward audit ([details](cmc_evidence_table.md)) tested the survivor family against Coinbase crypto + Alpaca stocks. The hackathon demo evaluates Kraken-tradable tokens — a partially-different universe. This script answers \"does the same edge show up here, or did selection bias inflate the original numbers?\"");
   lines.push("");
-  lines.push("**Sigma baseline (pooled OOS at 1.5% real fees):**");
+  lines.push("**Audit baseline (pooled OOS at 1.5% real fees):**");
   lines.push("");
   lines.push("| Archetype | n | mean net P&L | win rate |");
   lines.push("|---|---|---|---|");
@@ -131,8 +131,8 @@ async function evaluateToken(symbol) {
   lines.push("- **Universe selection is curated, not exhaustive.** Top-30 by CMC market cap is a defensible starting point but is itself a form of selection bias — tokens that survived to top-30 are survivors by definition. A truly bias-free test would sample randomly from the full Kraken USD universe.");
   lines.push("- **Exclusions are reported transparently** in the per-token table (tokens with no Kraken USD pair, or insufficient history for SMA200 warmup, show \"excluded\" with the reason).");
   lines.push("- **Single-token sample sizes are small** (often n ≤ 3) — token-level conclusions are not statistically supportable. Only the pooled universe-level number is meaningful.");
-  lines.push("- **The backtester uses the same simplified exit envelope as the demo evaluator** (SL / profit-floor / TP / time-exit). The sigma audit had subtler regime-aware exits; expect slight numerical divergence from that source.");
-  lines.push("- **Fee model: 1.5% round-trip** (matches sigma's audit and the demo evaluator).");
+  lines.push("- **The backtester uses the same simplified exit envelope as the demo evaluator** (SL / profit-floor / TP / time-exit). The original audit had subtler regime-aware exits; expect slight numerical divergence from that source.");
+  lines.push("- **Fee model: 1.5% round-trip** (matches the audit and the demo evaluator).");
   lines.push("");
   lines.push("## Reading the result");
   lines.push("");
@@ -141,21 +141,21 @@ async function evaluateToken(symbol) {
   if (aggRsi.n < 20) {
     lines.push(`**Inconclusive.** rsi_oversold aggregate n=${aggRsi.n} is too small to draw a universe-level conclusion. Expand the token list and re-run.`);
   } else if (observedRsi < 0) {
-    lines.push(`**rsi_oversold does NOT transfer.** Aggregate mean ${fmt(observedRsi, 2)}% on n=${aggRsi.n} is negative on this universe. The edge that sigma found on Coinbase + Alpaca does not reproduce on Kraken at this size. The honest demo position: "this rule has historical evidence on one universe; we cannot confirm transferability here."`);
+    lines.push(`**rsi_oversold does NOT transfer.** Aggregate mean ${fmt(observedRsi, 2)}% on n=${aggRsi.n} is negative on this universe. The edge that the audit found on Coinbase + Alpaca does not reproduce on Kraken at this size. The honest demo position: "this rule has historical evidence on one universe; we cannot confirm transferability here."`);
   } else if (observedRsi >= BASELINE_RSI * 0.5 && observedRsi <= BASELINE_RSI * 1.8) {
-    lines.push(`**rsi_oversold transfers cleanly.** Aggregate mean ${fmt(observedRsi, 2)}% on n=${aggRsi.n} sits within ~80% of sigma's +${BASELINE_RSI}% baseline. The edge is the same shape on both universes; the demo can claim it without inflating.`);
+    lines.push(`**rsi_oversold transfers cleanly.** Aggregate mean ${fmt(observedRsi, 2)}% on n=${aggRsi.n} sits within ~80% of the +${BASELINE_RSI}% baseline. The edge is the same shape on both universes; the demo can claim it without inflating.`);
   } else if (observedRsi > BASELINE_RSI * 1.8) {
-    lines.push(`**rsi_oversold transfers — but the magnitude is ${(observedRsi / BASELINE_RSI).toFixed(1)}× larger than the sigma baseline.** Aggregate mean ${fmt(observedRsi, 2)}% on n=${aggRsi.n} vs sigma's +${BASELINE_RSI}% / n=29.`);
+    lines.push(`**rsi_oversold transfers — but the magnitude is ${(observedRsi / BASELINE_RSI).toFixed(1)}× larger than the audit baseline.** Aggregate mean ${fmt(observedRsi, 2)}% on n=${aggRsi.n} vs the +${BASELINE_RSI}% / n=29.`);
     lines.push("");
     lines.push("**Likely confounds (disclose in demo):**");
     lines.push("");
-    lines.push("- **Lookback window tilt.** This script uses the last 720 days, which includes a major crypto bull run. Sigma's audit used a longer mixed window with more drawdown coverage. Mean-reversion strategies look stronger on uptrend-tilted samples — every oversold dip resolves into trend continuation.");
+    lines.push("- **Lookback window tilt.** This script uses the last 720 days, which includes a major crypto bull run. The original audit used a longer mixed window with more drawdown coverage. Mean-reversion strategies look stronger on uptrend-tilted samples — every oversold dip resolves into trend continuation.");
     lines.push("- **Survivorship bias in the universe.** Top-30-by-CMC-market-cap *today* selects tokens that performed well historically. Tokens that hit oversold and stayed crushed are not in the universe at all.");
     lines.push("- **Win-rate variance is high** even within the universe (AVAX -20%, SUI -14% vs DOGE +12%, INJ +12% on single-digit n each). The pooled mean masks meaningful per-token dispersion.");
     lines.push("");
-    lines.push(`**Honest demo position:** "The survivor family directionally transfers from sigma's audit to the Kraken universe. The observed magnitude (${fmt(observedRsi, 2)}%) is larger than sigma's baseline (+${BASELINE_RSI}%), but we believe most of that gap is bull-market tilt and survivorship in the lookback — not evidence of a stronger edge. Treat the sigma audit as the load-bearing claim; this script is a transferability sanity check."`);
+    lines.push(`**Honest demo position:** "The survivor family directionally transfers from the audit to the Kraken universe. The observed magnitude (${fmt(observedRsi, 2)}%) is larger than the baseline (+${BASELINE_RSI}%), but we believe most of that gap is bull-market tilt and survivorship in the lookback — not evidence of a stronger edge. Treat the audit as the load-bearing claim; this script is a transferability sanity check."`);
   } else {
-    lines.push(`**rsi_oversold transfers weakly.** Aggregate mean ${fmt(observedRsi, 2)}% on n=${aggRsi.n} is positive but below sigma's +${BASELINE_RSI}% baseline. The edge is directionally right but smaller — disclose in the demo.`);
+    lines.push(`**rsi_oversold transfers weakly.** Aggregate mean ${fmt(observedRsi, 2)}% on n=${aggRsi.n} is positive but below the +${BASELINE_RSI}% baseline. The edge is directionally right but smaller — disclose in the demo.`);
   }
   lines.push("");
   lines.push("---");

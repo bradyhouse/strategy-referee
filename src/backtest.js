@@ -22,8 +22,8 @@ const SMA200_PERIOD = 200;
 const BB_MIDDLE_PERIOD = 20;
 const WARMUP_BARS = 250;
 
-// Survivor archetypes — params match sigma's walk-forward defensible combos
-// (see docs/cmc_evidence_table.md §3a / §3b in the sigma repo).
+// Survivor archetypes — params match the walk-forward defensible combos
+// (see docs/cmc_evidence_table.md §3a / §3b).
 const ARCHETYPES = {
   rsi_oversold: {
     rsi_oversold: 32,

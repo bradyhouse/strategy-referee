@@ -1,7 +1,7 @@
 // Evaluator — given a token symbol, return PASS / WATCH / REJECT plus
 // reasoning. Decision logic mirrors the walk-forward survivor family:
 // oscillator-oversold (RSI<32 OR MFI<20) inside a long-horizon uptrend
-// (close > SMA200). See README.md and the sigma evidence table for the
+// (close > SMA200). See README.md and docs/cmc_evidence_table.md for the
 // audit that justifies these thresholds.
 
 import {

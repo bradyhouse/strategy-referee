@@ -165,7 +165,7 @@
 
   <g id="Footer">
     <line x1="0" y1="1052" x2="1440" y2="1052" stroke="#e5e7eb" stroke-width="1"/>
-    <text x="24" y="1078" font-size="12" fill="#6b7280">Methodology: 21 archetypes audited, 2 walk-forward survivors. Source: bradyhouse/sigma-swing-agent docs/cmc_evidence_table.md</text>
+    <text x="24" y="1078" font-size="12" fill="#6b7280">Methodology: 21 archetypes audited, 2 walk-forward survivors. Source: docs/cmc_evidence_table.md</text>
   </g>
 
 </svg>

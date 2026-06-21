@@ -1,7 +1,7 @@
 // Builds a runnable @stratchai/strategy-spec payload for a PASS verdict.
 // The emitted spec uses the survivor family's walk-forward-validated params
-// (see sigma docs/cmc_evidence_table.md §3a / §3b) and the spec author's
-// canonical exit envelope. Always validated before return.
+// (see docs/cmc_evidence_table.md §3a / §3b) and the canonical exit envelope.
+// Always validated before return.
 
 // @stratchai/strategy-spec is published as CJS with module.exports = { ... }.
 // Node's ESM/CJS interop heuristics don't auto-detect named exports from that
@@ -127,10 +127,10 @@ function descriptionFor(archetype, symbol) {
     audit,
     "",
     "The emitted spec is informational — it represents WHAT a runnable strategy",
-    "would look like for this token under the survivor family's params. To deploy,",
-    "verify the token exists on the chosen exchange, drop the JSON into a",
-    "sigma-style strategies/ directory, and the @stratchai/core runtime can",
-    "consume it directly.",
+    "would look like for this token under the survivor family's params. It",
+    "validates against @stratchai/strategy-spec and runs in @stratchai/backtest;",
+    "to deploy, verify the token trades on the chosen exchange and hand the JSON",
+    "to a @stratchai/core runtime.",
     "",
     "Not a prediction. Not financial advice. Single-token live performance is",
     "expected to regress toward the walk-forward OOS mean.",
