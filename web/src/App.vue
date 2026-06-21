@@ -1491,7 +1491,10 @@ const trendBadgeClass = computed(() => {
           :busy="agentBusy"
           theme="phosphor"
           prompt="→ "
-          :scanlines="true"
+          :curvature="4"
+          :glow="false"
+          :scanlines="false"
+          :magnify="false"
           :autoscroll="true"
           @submit="onAgentSubmit"
         />
