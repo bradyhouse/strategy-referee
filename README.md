@@ -27,6 +27,13 @@ execute trades or sign transactions** (a quant-research referee, not a live agen
 npm install
 cp .env.example .env   # add your CMC API key
 npm run skill          # MCP server on stdio
+npm run skill:test     # end-to-end smoke test (spawns the skill over a real MCP client)
+```
+
+Or poke at it interactively in a browser with the official inspector:
+
+```bash
+npx @modelcontextprotocol/inspector node mcp/server.js
 ```
 
 **Register with an MCP client** (e.g. Claude Desktop `claude_desktop_config.json`):
