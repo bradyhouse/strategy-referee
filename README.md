@@ -152,22 +152,6 @@ node src/index.js --token ETH --at-date 2025-09-25 --emit-spec > eth-spec.json
 
 That JSON validates against `@stratchai/strategy-spec`'s schema and is consumable by `@stratchai/backtest` for further validation. It's the canonical strategy-spec format — anything that consumes specs in that shape can run the emitted strategy as-is.
 
-## Status
-
-CLI is **feature-complete** for the demo. Web UI per [`docs/wireframes/`](docs/wireframes/) is planned but not yet built.
-
-| Component | Status |
-|---|---|
-| Single-token evaluation (PASS / WATCH / REJECT) | ✅ shipped |
-| Reasoning + signals (RSI / MFI / SMA200 / sma_distance) | ✅ shipped |
-| Strategy-spec emission on PASS (`@stratchai/strategy-spec`) | ✅ shipped |
-| Retrospective backtest (`@stratchai/backtest`) | ✅ shipped |
-| Historical replay (`--at-date YYYY-MM-DD`) | ✅ shipped |
-| Forward-look simulation (on PASS at historical date) | ✅ shipped |
-| Watchlist mode with PASS-first ranking | ✅ shipped |
-| Web UI per [wireframes](docs/wireframes/) | 🚧 designed, not built |
-| Trust Wallet Agent Kit preview-mode integration (stretch) | 📋 planned |
-
 ## The thesis
 
 A 21-archetype walk-forward audit at 1.5% real round-trip fees on a mixed crypto + stock universe identified two survivors. Full evidence in [`docs/methodology.md`](docs/methodology.md) — the audit setup, the 21-archetype final accounting, the structural fingerprint shared by the survivors, and the CMC top-30 re-check that confirms the cull verdicts hold on the current universe.
@@ -185,16 +169,9 @@ Both share the same structural fingerprint:
 
 Everything else — Donchian, MACD/Stoch, bare ORB, volume-anomaly, framework ascending-triangle, intraday extensions — was killed under walk-forward + adversarial review. Most archetypes have *some* tiny gross edge that real fees swamp; the survivors have ~+2.2% gross, an order of magnitude richer.
 
-## Does it transfer to Kraken?
+## Transferability
 
-The sigma audit ran on Coinbase + Alpaca. This evaluator uses Kraken klines for OHLCV. We re-ran both survivor archetypes against 30 curated top-cap Kraken tokens:
-
-| Source | Archetype | n | Mean net | Win rate |
-|---|---|---|---|---|
-| Sigma audit | `rsi_oversold + SMA200` | 29 | +0.71% | 62% |
-| Kraken top-30 (this repo) | `rsi_oversold + SMA200` | 56 | **+3.86%** | 67.9% |
-
-**The edge directionally transfers, but the observed magnitude (+3.86%) is ~5.4× sigma's baseline.** Almost certainly bull-market tilt in the 720-day lookback + survivorship bias from selecting top-30-by-current-market-cap. **We treat sigma's +0.71% as the load-bearing claim**; the Kraken result is a transferability sanity check, not evidence of a stronger edge.
+The walk-forward audit ran on a Coinbase + Alpaca universe; this evaluator scores CMC-listed tokens using Kraken OHLCV. We re-ran both survivor archetypes against the curated top-cap Kraken set, and the edge transfers directionally. We deliberately treat the **conservative audit numbers (+0.71% / +0.89%)** as the load-bearing claim — not the rosier in-sample re-run, which carries bull-market and survivorship tilt.
 
 Full results + caveats: [`docs/cmc_universe_verification.md`](docs/cmc_universe_verification.md). Reproducible via `node scripts/verify_cmc_universe.js`.
 
@@ -209,7 +186,7 @@ Two-source data design — see [`docs/cmc_api_auth.md`](docs/cmc_api_auth.md) fo
 | Indicator computation | [`@stratchai/indicators`](https://www.npmjs.com/package/@stratchai/indicators) — RSI / MFI / SMA series |
 | Strategy spec schema | [`@stratchai/strategy-spec`](https://www.npmjs.com/package/@stratchai/strategy-spec) — validation + spec authoring |
 | Backtest engine | [`@stratchai/backtest`](https://www.npmjs.com/package/@stratchai/backtest) — fees, aggregation, walk-forward primitives |
-| Chart rendering (web UI, planned) | [`@stratchai/cathode`](https://www.npmjs.com/package/@stratchai/cathode) — CRT-styled Vue 3 candles |
+| Chart rendering (web UI) | [`@stratchai/cathode`](https://www.npmjs.com/package/@stratchai/cathode) — CRT-styled Vue 3 candles |
 
 ## Decision logic
 
@@ -226,7 +203,7 @@ Two-source data design — see [`docs/cmc_api_auth.md`](docs/cmc_api_auth.md) fo
 - Suggest Donchian, MACD/Stoch, ORB, volume-anomaly, ascending-triangle, or any archetype that was killed in the audit
 - Claim positive expectancy on any specific token — the population-level walk-forward audit is the load-bearing claim
 - Execute trades or sign transactions — this is an evaluator, not an autonomous agent
-- Pretend the Kraken verification's +3.86% is a stronger edge than sigma's +0.71% — see the universe verification doc
+- Treat the in-sample Kraken re-run as stronger evidence than the conservative walk-forward audit — see the transferability note
 
 ## CLI reference
 
@@ -252,25 +229,33 @@ Exit codes:
 
 ```
 strategy-referee/
-├── src/
-│   ├── index.js           CLI entry, flag parsing, pretty/JSON output
-│   ├── evaluator.js       Verdict decision tree + signals + reasoning assembly
-│   ├── cmc.js             CoinMarketCap Pro client (listings, quotes, info, key/info)
-│   ├── ohlcv.js           Kraken OHLC client (with source-shopping rationale)
-│   ├── backtest.js        Retrospective backtest + forward-look simulation
-│   ├── spec_builder.js    @stratchai/strategy-spec payload builder
-│   └── watchlist.js       Batched scan harness + PASS-first ranking
-├── scripts/
-│   └── verify_cmc_universe.js   Reproducible Kraken transferability test
+├── src/                   Evaluator core — shared by every surface below
+│   ├── evaluator.js        Verdict decision tree + signals + reasoning
+│   ├── cmc.js              CoinMarketCap Pro client (listings, quotes, info)
+│   ├── ohlcv.js            Kraken OHLC client (with source-shopping rationale)
+│   ├── backtest.js         Retrospective backtest + forward-look simulation
+│   ├── spec_builder.js     @stratchai/strategy-spec payload builder
+│   ├── watchlist.js        Batched scan harness + PASS-first ranking
+│   └── index.js            CLI entry (pretty / JSON output)
+├── mcp/                   AI Agent Skill (MCP)
+│   ├── skill.js            Tool definitions (evaluate_token, evaluate_watchlist)
+│   └── server.js           stdio transport
+├── api/                   Vercel serverless functions
+│   ├── mcp.js              MCP skill over Streamable HTTP (remotely callable)
+│   └── evaluate · watchlist · universe · health   REST endpoints
+├── web/                   Vue 3 demo UI (cathode charts) over the same core
+├── scripts/               verify_cmc_universe + skill smoke tests
 └── docs/
-    ├── cmc_api_auth.md              Credential setup + tier + data-source rationale
-    ├── cmc_universe_verification.md Auto-generated transferability evidence
-    └── wireframes/                  SVG mockups (Figma-importable) of the planned web UI
+    ├── methodology.md               The thesis + 21-archetype audit (evidence)
+    ├── cmc_evidence_table.md        Consolidated walk-forward evidence table
+    ├── cmc_universe_verification.md  Transferability evidence
+    ├── cmc_api_auth.md              Credentials + data-source rationale
+    └── deploy.md                    Vercel deploy guide
 ```
 
 ## Built for
 
-The **BNB HACK Hackathon** — sponsored by CoinMarketCap, Trust Wallet, BNB Chain. Targeting **Track 2 (Strategy Skills)** + **Best CMC Data & Signal Use** special prize. Submission lock 2026-06-21 12:00 UTC.
+The **BNB HACK Hackathon** — sponsored by CoinMarketCap, Trust Wallet, BNB Chain. Targeting **Track 2 (Strategy Skills)** + the **Best CMC Data & Signal Use** special prize.
 
 ## License
 
