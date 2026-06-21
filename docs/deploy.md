@@ -25,7 +25,7 @@ Strategy-referee is structured for zero-config Vercel deployment:
 
 The first deploy takes ~90 seconds (npm install + Vite build + function bundle). Subsequent deploys (on every `git push` to `main`) take ~30 seconds because most of `node_modules/` cache hits.
 
-You'll get a URL like `https://strategy-referee.vercel.app` (or `strategy-referee-<hash>.vercel.app` for previews on PRs). The web UI lives at `/`; the API endpoints at `/api/evaluate`, `/api/watchlist`, `/api/health`.
+You'll get a URL like `https://strategy-referee.vercel.app` (or `strategy-referee-<hash>.vercel.app` for previews on PRs). The web UI lives at `/`; the API endpoints at `/api/evaluate`, `/api/watchlist`, `/api/health`; and the **remotely-callable MCP skill at `/api/mcp`** (Streamable HTTP — register with `claude mcp add --transport http strategy-referee <URL>/api/mcp`; see the README's "Use as an AI Agent Skill" section).
 
 ## Option B — Vercel CLI from your machine
 

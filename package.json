@@ -12,6 +12,7 @@
     "start": "node src/index.js",
     "skill": "node mcp/server.js",
     "skill:test": "node scripts/skill_smoke.mjs",
+    "skill:test:http": "node scripts/skill_http_smoke.mjs",
     "test": "node --test tests/",
     "dev:api": "node server.js",
     "dev:web": "cd web && vite",

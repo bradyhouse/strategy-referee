@@ -18,6 +18,7 @@ const evaluateHandler  = (await import("./api/evaluate.js")).default;
 const watchlistHandler = (await import("./api/watchlist.js")).default;
 const healthHandler    = (await import("./api/health.js")).default;
 const universeHandler  = (await import("./api/universe.js")).default;
+const mcpHandler       = (await import("./api/mcp.js")).default;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -30,6 +31,7 @@ app.get("/api/health",      healthHandler);
 app.get("/api/universe",    universeHandler);
 app.post("/api/evaluate",   evaluateHandler);
 app.post("/api/watchlist",  watchlistHandler);
+app.all("/api/mcp",         mcpHandler);   // MCP Streamable HTTP skill (same handler Vercel serves)
 
 const distDir = path.join(__dirname, "web", "dist");
 if (existsSync(distDir)) {

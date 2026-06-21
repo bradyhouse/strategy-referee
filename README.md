@@ -55,6 +55,26 @@ calls the skill, gets a verdict + (on PASS) a backtestable spec it can hand to
 [`@stratchai/backtest`](https://www.npmjs.com/package/@stratchai/backtest). The
 web UI below is a demo front-end over the **same** evaluator core.
 
+### Remotely callable (deployed Streamable-HTTP skill)
+
+The skill also ships an HTTP transport at [`api/mcp.js`](api/mcp.js) — a stateless
+[Streamable-HTTP](https://modelcontextprotocol.io) endpoint deployed as a Vercel
+serverless function (`/api/mcp`). No local install needed; register the URL:
+
+```bash
+claude mcp add --transport http strategy-referee https://<your-app>.vercel.app/api/mcp
+```
+
+Deploy: push to a Vercel-connected repo (or import at [vercel.com/new](https://vercel.com/new)),
+set `CMC_API_KEY` as an environment variable, and the function is live. Verify it:
+
+```bash
+npm run skill:test:http -- https://<your-app>.vercel.app/api/mcp
+```
+
+It's the **same `mcp/skill.js` tool definitions** as the stdio server — stdio for
+local, HTTP for a hosted, network-callable skill.
+
 ## Quick start
 
 ```bash
