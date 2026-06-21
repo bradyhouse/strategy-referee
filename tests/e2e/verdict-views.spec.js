@@ -443,4 +443,26 @@ test.describe("Verdict views — visual smokes", () => {
     await expect(modal.getByRole("button", { name: /⚙ Display/ })).toBeVisible();
     await expect(modal.getByRole("button", { name: /⬇ PNG/ })).toBeVisible();
   });
+
+  test("Agent skill tab — example prompt makes a real skill call", async ({ page }) => {
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto("/");
+
+    // Switch to the Agent skill view; the cathode terminal renders to a canvas.
+    await page.getByRole("button", { name: /^Agent skill$/ }).click();
+    await expect(page.locator("canvas").first()).toBeVisible();
+
+    // Clicking an example chip issues a REAL call to the skill endpoint.
+    const evalReq = page.waitForResponse(
+      (r) => r.url().includes("/api/evaluate") && r.request().method() === "POST",
+      { timeout: 10000 },
+    );
+    await page.getByRole("button", { name: "evaluate ETH as of 2025-09-28" }).click();
+    const res = await evalReq;
+    expect(res.ok()).toBe(true);
+
+    await page.waitForTimeout(1500);
+    expect(errors).toEqual([]);  // transcript rendered without runtime errors
+  });
 });

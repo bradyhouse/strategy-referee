@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, createApp, h } from "vue";
-import { CathodeCandle, CathodeGrid } from "@stratchai/cathode";
+import { CathodeCandle, CathodeGrid, CathodeTerminal } from "@stratchai/cathode";
 import "@stratchai/cathode/style";
 // Static bundle of the audit-universe screening run. 46 shelved daily-crypto
 // archetypes × CMC top-30, 1.5% real round-trip fees, walk-forward on
@@ -639,6 +639,89 @@ function switchMode(newMode) {
     watchlistInput.value = "BTC, ETH, SOL, LINK, ADA, DOGE";
     atDate.value = "2025-09-25";
     watchlistInitialized.value = true;
+  }
+}
+
+// ── Agent-skill view ─────────────────────────────────────────────────────────
+// A CathodeTerminal that drives the SAME evaluator the MCP skill exposes,
+// presented as an agent transcript. Each prompt makes a REAL call to
+// /api/evaluate or /api/watchlist (the endpoints share evaluateToken /
+// evaluateWatchlist with the MCP tools) and renders the tool-call + verdict +
+// reasoning + emitted spec — no scripted/faked output.
+const agentExamples = ["evaluate ETH", "evaluate ETH as of 2025-09-28", "scan BTC, ETH, SOL"];
+const agentEntries = ref([
+  { text: "strategy-referee — agent skill", level: "success" },
+  { text: "Same evaluator the MCP skill exposes: evaluate_token / evaluate_watchlist. Real calls.", level: "debug" },
+  { text: "Try:  evaluate ETH   ·   evaluate ETH as of 2025-09-28   ·   scan BTC, ETH, SOL", level: "info" },
+]);
+const agentBusy = ref(false);
+
+// Replace the array (not push) so cathode's shallow-watched entries prop re-renders.
+function pushAgent(text, level = "info") {
+  agentEntries.value = [...agentEntries.value, { text, level, ts: Date.now() }];
+}
+
+// Parse a natural prompt into a tool call. "evaluate ETH" → token; "scan A,B,C"
+// or multiple tickers → watchlist; a YYYY-MM-DD anywhere → as_of_date.
+function parseAgentCommand(raw) {
+  const text = (raw || "").trim();
+  if (!text) return { kind: "noop" };
+  const date = (text.match(/\d{4}-\d{2}-\d{2}/) || [])[0] || null;
+  const STOP = new Set(["EVALUATE", "EVAL", "TOKEN", "SCAN", "WATCHLIST", "AS", "OF", "ON", "FOR", "THE", "CHECK", "RATE", "ASOF", "HELP", "AND"]);
+  const candidates = (text.toUpperCase().match(/\b[A-Z]{2,6}\b/g) || []).filter((w) => !STOP.has(w));
+  if (/\bhelp\b/i.test(text) || !candidates.length) return { kind: "help" };
+  const isScan = /\bscan\b|\bwatchlist\b/i.test(text) || text.includes(",") || candidates.length > 1;
+  if (isScan) return { kind: "watchlist", symbols: [...new Set(candidates)].slice(0, 12), date };
+  return { kind: "token", symbol: candidates[0], date };
+}
+
+function agentRenderVerdict(r) {
+  const lvl = r.verdict === "PASS" ? "success" : r.verdict === "WATCH" ? "warn" : "error";
+  pushAgent(`${r.verdict}  ${r.symbol}${r.code ? "  (" + r.code + ")" : ""}`, lvl);
+  for (const line of (r.reasoning || []).slice(0, 3)) pushAgent("  • " + line, "debug");
+  if (r.spec?.name) pushAgent(`  ↳ backtestable spec emitted: ${r.spec.name}`, "info");
+  if (r.forward_look && !r.forward_look.status) {
+    const f = r.forward_look;
+    const pnl = typeof f.net_pnl_pct === "number" ? f.net_pnl_pct.toFixed(2) + "%" : "";
+    pushAgent(`  ↳ forward-look: ${f.entry_date} → ${f.exit_date}  ${f.reason}  ${pnl} net`, "info");
+  }
+}
+
+async function onAgentSubmit(command) {
+  pushAgent("→ " + command, "debug");
+  const parsed = parseAgentCommand(command);
+  if (parsed.kind === "noop") return;
+  if (parsed.kind === "help") {
+    pushAgent("Ask me to evaluate a token or scan several:", "info");
+    pushAgent("  evaluate ETH   ·   evaluate SOL as of 2025-09-26   ·   scan BTC, ETH, SOL", "info");
+    return;
+  }
+  agentBusy.value = true;
+  try {
+    if (parsed.kind === "token") {
+      pushAgent(`🔧 evaluate_token(symbol="${parsed.symbol}"${parsed.date ? `, as_of_date="${parsed.date}"` : ""})`, "info");
+      const res = await fetch("/api/evaluate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: parsed.symbol, asOfDate: parsed.date }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      agentRenderVerdict(await res.json());
+    } else {
+      pushAgent(`🔧 evaluate_watchlist(symbols=[${parsed.symbols.join(", ")}]${parsed.date ? `, as_of_date="${parsed.date}"` : ""})`, "info");
+      const res = await fetch("/api/watchlist", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: parsed.symbols, asOfDate: parsed.date }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const arr = await res.json();
+      const tally = arr.reduce((a, r) => ((a[r.verdict] = (a[r.verdict] || 0) + 1), a), {});
+      pushAgent(`scanned ${arr.length}: ` + Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(", "), "info");
+      for (const r of arr) agentRenderVerdict(r);
+    }
+  } catch (e) {
+    pushAgent("✗ " + (e?.message || e), "error");
+  } finally {
+    agentBusy.value = false;
   }
 }
 
@@ -1289,6 +1372,12 @@ const trendBadgeClass = computed(() => {
         >
           Watchlist
         </button>
+        <button
+          @click="switchMode('agent')"
+          :class="['px-4 py-1.5 rounded-md text-sm font-medium', mode === 'agent' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50']"
+        >
+          Agent skill
+        </button>
         <div class="ml-8 flex items-center gap-2">
           <span class="text-sm font-semibold text-gray-900">As of</span>
           <input
@@ -1372,6 +1461,45 @@ const trendBadgeClass = computed(() => {
           {{ p.label }}
         </button>
       </div>
+    </div>
+
+    <!-- Agent skill — CathodeTerminal driving the SAME evaluator the MCP skill
+         exposes (evaluate_token / evaluate_watchlist). Real calls, no scripts. -->
+    <div v-if="mode === 'agent'" class="max-w-7xl mx-auto px-6 py-6">
+      <div class="mb-3 flex items-center justify-between flex-wrap gap-3">
+        <p class="text-sm text-gray-600 max-w-3xl">
+          Talk to it like an agent would. Each prompt makes a real call to the same
+          <span class="font-mono text-gray-900">evaluate_token</span> /
+          <span class="font-mono text-gray-900">evaluate_watchlist</span>
+          this project exposes as an <strong>MCP skill</strong> — no scripted output. Type a prompt and hit Enter.
+        </p>
+        <div class="flex gap-2 flex-wrap">
+          <button
+            v-for="ex in agentExamples"
+            :key="ex"
+            @click="onAgentSubmit(ex)"
+            :disabled="agentBusy"
+            class="px-2.5 py-1 text-xs rounded border border-gray-300 bg-white hover:bg-gray-50 font-mono disabled:opacity-50"
+          >
+            {{ ex }}
+          </button>
+        </div>
+      </div>
+      <div class="h-[480px] rounded-lg overflow-hidden border border-gray-800 bg-black">
+        <CathodeTerminal
+          :entries="agentEntries"
+          :busy="agentBusy"
+          theme="phosphor"
+          prompt="→ "
+          :scanlines="true"
+          :autoscroll="true"
+          @submit="onAgentSubmit"
+        />
+      </div>
+      <p class="mt-2 text-xs text-gray-500 italic">
+        Terminal from <a href="https://www.npmjs.com/package/@stratchai/cathode" target="_blank" rel="noopener" class="font-mono hover:underline">@stratchai/cathode</a>.
+        The same tools are callable by a real agent over MCP — see the repo README's "Use as an AI Agent Skill" section.
+      </p>
     </div>
 
     <!-- Error -->

@@ -53,7 +53,10 @@ npx @modelcontextprotocol/inspector node mcp/server.js
 Then ask the agent things like *"evaluate ETH"* or *"scan BTC, SOL, LINK"* — it
 calls the skill, gets a verdict + (on PASS) a backtestable spec it can hand to
 [`@stratchai/backtest`](https://www.npmjs.com/package/@stratchai/backtest). The
-web UI below is a demo front-end over the **same** evaluator core.
+web UI below is a demo front-end over the **same** evaluator core — including an
+**Agent skill** tab (a `@stratchai/cathode` terminal) that drives the same
+`evaluate_token` / `evaluate_watchlist` tools with real calls, so you can see the
+agent-skill flow in-browser without installing an MCP client.
 
 ### Remotely callable (deployed Streamable-HTTP skill)
 
