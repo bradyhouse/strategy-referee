@@ -119,7 +119,7 @@ Kraken uses XBT (the ISO 4217 code) instead of BTC for Bitcoin in pair names; th
 
 ## 5. Rate-limit guardrails
 
-The free tier caps at 50 requests/minute. At the project's planned cadence (one full evaluator pass over a watchlist runs ~5–10 CMC calls plus 50–100 Binance klines calls), the rate limit is not a practical constraint. No backoff/queue code is needed for hackathon scope.
+The free tier caps at 50 requests/minute. At the project's planned cadence (one full evaluator pass over a watchlist runs ~5–10 CMC calls plus 50–100 Kraken OHLC calls), the rate limit is not a practical constraint. No backoff/queue code is needed for hackathon scope.
 
 If rate-limit headers indicate quota stress (`X-CMC_PRO_API_QUOTA_REMAINING_MINUTE` < 5), the evaluator should pause for 60 seconds rather than retrying.
 
