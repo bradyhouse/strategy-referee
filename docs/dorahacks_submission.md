@@ -35,12 +35,6 @@ An agent-invokable MCP skill (local + deployed over HTTP) that evaluates a token
 
 **See [dorahacks_details.md](dorahacks_details.md)**
 
-It is fact-reconciled against the repo (2026-06-21): every number, threshold,
-tool name, dependency version, and URL was cross-checked, and the "rejects most"
-claim now matches the committed `data/current_pass_scan_2026-06-20.json` artifact
-(1 of 30 matched — TON, late May — not the old "ZERO over 90 days" wording, which
-the artifact itself contradicted). It contains fenced code blocks, so it lives as
-its own Markdown file rather than inline in this fenced cheat-sheet.
 
 ### Demo URL
 
@@ -64,6 +58,9 @@ https://github.com/bradyhouse/strategy-referee
 ### Team
 
 - Brady House — solo build
+- Telegram - @bradylhouse
+- Email - bradyhouse@gmail.com
+
 
 ### Tech keywords
 
